@@ -1,0 +1,15 @@
+version = 1
+
+[general]
+animations = true
+startup_delay_ms = 0
+
+[compositor]
+backend = "hyprland"
+
+[modules]
+bar = true
+notch = true
+dock = false
+launcher = true
+notifications = true

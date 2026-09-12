@@ -1,0 +1,11 @@
+[[binding]]
+keys = ["SUPER", "SPACE"]
+action = "launcher.toggle"
+
+[[binding]]
+keys = ["SUPER", "N"]
+action = "notifications.toggle"
+
+[[binding]]
+keys = ["SUPER", "D"]
+action = "dock.toggle"

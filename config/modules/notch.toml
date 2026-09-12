@@ -1,0 +1,8 @@
+enabled = true
+width = 420
+collapsed_height = 32
+expanded_height = 420
+
+[animation]
+enabled = true
+duration_ms = 220
