@@ -6,7 +6,9 @@
 
 ## Purpose
 
+
 Provide a **fast calendar surface inside the Notch** for checking dates, seeing the next events and creating simple events without turning the Notch into a full productivity application.
+
 
 The Calendar domain is expected to eventually have both a shell surface and a full application:
 

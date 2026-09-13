@@ -6,7 +6,7 @@
 
 ## Purpose
 
-Provide fast access to **current time, date, world clocks, timers and alarms** inside the Notch without turning the shell into a permanently running clock application.
+Provide time presentation and clock-specific interaction inside the Notch while remaining independent from panel placement.
 
 The Clock module is a shell quick-surface. A future standalone Clock app is optional and only justified if alarm/timer workflows become deep enough to need their own workspace.
 
@@ -283,10 +283,9 @@ Animation should never become the source of timing truth.
 
 ```text
 current time
-current date
-12h/24h preference
-optional seconds
-correct timezone display
+12h/24h formatting
+timezone display
+optional timer/alarm expansion later
 ```
 
 ## MVP 2
@@ -316,7 +315,7 @@ suspend/resume correctness
 - GPUI widgets do not own background threads solely for timekeeping.
 - module remains functional with shell theme/config hot reload.
 
----
+The module may expose compact and expanded clock views, when user clicks him opens calendar mode with date and calendar; the Notch owns host resizing and animation.
 
 # Non-goals
 

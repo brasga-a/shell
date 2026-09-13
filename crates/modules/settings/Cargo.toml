@@ -1,0 +1,10 @@
+[package]
+name = "luna-module-settings"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+shell-core.workspace = true
+shell-ui-gpui.workspace = true
