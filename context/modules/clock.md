@@ -6,13 +6,12 @@
 
 ## Purpose
 
-Provide time/date presentation and clock-specific interaction inside the Notch while remaining independent from panel placement.
+Provide time presentation and clock-specific interaction inside the Notch while remaining independent from panel placement.
 
 ## Responsibilities
 
 ```text
 current time
-current date
 12h/24h formatting
 timezone display
 optional timer/alarm expansion later
@@ -33,7 +32,7 @@ optional expanded clock state
 
 ## Notch behavior
 
-The module may expose compact and expanded clock views; the Notch owns host resizing and animation.
+The module may expose compact and expanded clock views, when user clicks him opens calendar mode with date and calendar; the Notch owns host resizing and animation.
 
 ## MVP
 

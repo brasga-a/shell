@@ -22,11 +22,19 @@ fn main() {
         std::process::exit(1);
     }
 
+    let module_registry = match shell_app::build_module_registry() {
+        Ok(registry) => registry,
+        Err(error) => {
+            tracing::error!(error = %error, "module registry could not be initialized");
+            std::process::exit(1);
+        }
+    };
     let frontend = GpuiFrontend::new(SurfaceSpec::new(
         shell_core::OutputId::new(0),
         ShellLayer::Top,
         Anchors::TOP_LEFT_RIGHT,
-    ));
+    ))
+    .with_module_registry(module_registry);
     let config_manager = match ConfigManager::new(ConfigLoader::discover()) {
         Ok(manager) => manager,
         Err(error) => {

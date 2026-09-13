@@ -19,5 +19,5 @@ slow_ms = 360
 
 [typography]
 body_size = 14
-label_size = 13
+label_size = 14
 title_size = 16

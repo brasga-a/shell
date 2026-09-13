@@ -4,6 +4,14 @@
 //! application core only supplies renderer-independent configuration and
 //! domain values.
 
+pub mod module_host;
+pub mod primitives;
+
+pub use module_host::{
+    ModuleContext, ModuleId, ModuleMetadata, ModuleRegistry, ModuleRegistryError, ModuleSize,
+    ModuleView, NotchModule, NotchRoute,
+};
+
 use std::{
     any::Any,
     cell::RefCell,
@@ -25,18 +33,19 @@ use gpui_platform::application;
 use shell_config::{ConfigEvent, ConfigWatcher};
 use shell_core::{
     AppUsageMetrics, BarPosition, CompositorEvent, CompositorSnapshot, CompositorStateStore,
-    FocusManager, KeyboardModeConfig, NotchAnimation, NotchConfig, NotchGeometry, NotchState,
-    OutputId, PlatformError, Point, ShellCommand, ShellConfig,
+    FocusManager, KeyboardModeConfig, NotchAnimation, NotchConfig, NotchGeometry, OutputId,
+    PlatformError, Point, ShellCommand, ShellConfig,
 };
 use shell_platform::{Anchors, ShellLayer, SurfaceSpec};
 use shell_theme::DesignTokens;
 
 actions!(shell_ui_gpui, [Quit]);
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct GpuiFrontend {
     surface_spec: Rc<RefCell<SurfaceSpec>>,
     settings: Rc<RefCell<FrontendSettings>>,
+    module_registry: Rc<RefCell<ModuleRegistry>>,
 }
 
 #[derive(Clone, Debug)]
@@ -75,7 +84,17 @@ impl GpuiFrontend {
         Self {
             surface_spec: Rc::new(RefCell::new(surface_spec)),
             settings: Rc::new(RefCell::new(FrontendSettings::default())),
+            module_registry: Rc::new(RefCell::new(ModuleRegistry::new())),
         }
+    }
+
+    /// Supplies the statically linked modules assembled by `shell-app`.
+    ///
+    /// The frontend owns the host handle after composition; concrete module
+    /// crates are never imported by this crate.
+    pub fn with_module_registry(mut self, registry: ModuleRegistry) -> Self {
+        self.module_registry = Rc::new(RefCell::new(registry));
+        self
     }
 
     pub fn prepare(&self, config: &ShellConfig) {
@@ -140,6 +159,7 @@ impl GpuiFrontend {
         let debug_state_store = state_store.clone();
         let notch_config = settings.notch.clone();
         let notch_tokens = settings.tokens.clone();
+        let module_registry = self.module_registry.clone();
         let configured_output_size = focused_output_size(&initial_snapshot);
 
         let run_result = catch_gpui_run(|| {
@@ -209,6 +229,7 @@ impl GpuiFrontend {
                                     notch_tokens,
                                     initial_snapshot,
                                     commands,
+                                    module_registry,
                                     cx,
                                 );
 
@@ -545,11 +566,12 @@ fn notch_layer_shell_options(reserved_height: u32) -> LayerShellOptions {
 struct NotchView {
     config: NotchConfig,
     tokens: DesignTokens,
-    state: NotchState,
+    route: NotchRoute,
     clock: SharedString,
     query: String,
     snapshot: CompositorSnapshot,
     commands: mpsc::Sender<ShellCommand>,
+    module_registry: Rc<RefCell<ModuleRegistry>>,
     focus_manager: FocusManager,
     focus_handle: FocusHandle,
     animation: NotchAnimation,
@@ -563,9 +585,11 @@ impl NotchView {
         tokens: DesignTokens,
         snapshot: CompositorSnapshot,
         commands: mpsc::Sender<ShellCommand>,
+        module_registry: Rc<RefCell<ModuleRegistry>>,
         cx: &mut Context<Self>,
     ) -> Self {
-        let initial_geometry = notch_target_geometry(&config, NotchState::Idle);
+        let initial_geometry =
+            notch_target_geometry(&config, NotchRoute::Idle, &module_registry.borrow());
         let task = cx.spawn(async move |this, cx| {
             loop {
                 if this
@@ -585,11 +609,12 @@ impl NotchView {
         Self {
             config,
             tokens,
-            state: NotchState::Idle,
+            route: NotchRoute::Idle,
             clock: local_clock(),
             query: String::new(),
             snapshot,
             commands,
+            module_registry,
             focus_manager: FocusManager::default(),
             focus_handle: cx.focus_handle(),
             animation: NotchAnimation::new(initial_geometry),
@@ -598,39 +623,69 @@ impl NotchView {
         }
     }
 
-    fn target_geometry(&self, state: NotchState) -> NotchGeometry {
-        notch_target_geometry(&self.config, state)
+    fn target_geometry(&self, route: NotchRoute) -> NotchGeometry {
+        notch_target_geometry(&self.config, route, &self.module_registry.borrow())
     }
 }
 
-fn notch_target_geometry(config: &NotchConfig, state: NotchState) -> NotchGeometry {
-    let geometry = NotchGeometry::for_state(config, state);
-    if state == NotchState::Launcher {
-        return geometry;
+fn notch_target_geometry(
+    config: &NotchConfig,
+    route: NotchRoute,
+    registry: &ModuleRegistry,
+) -> NotchGeometry {
+    let idle_geometry = NotchGeometry::new(
+        config.collapsed_width as f32,
+        config.collapsed_height as f32,
+        config.corner_radius as f32,
+        config.corner_size as f32,
+        config.edge.into(),
+    );
+    match route {
+        NotchRoute::Idle => {
+            let module_count = config
+                .modules
+                .iter()
+                .filter(|module| registry.resolve_key(module).is_some())
+                .count();
+            let calculated_width = 32.0 + module_count as f32 * 44.0;
+            NotchGeometry::new(
+                calculated_width
+                    .max(idle_geometry.width)
+                    .min(config.width as f32),
+                idle_geometry.height,
+                idle_geometry.radius,
+                idle_geometry.corner_size,
+                idle_geometry.edge,
+            )
+        }
+        NotchRoute::Module(id) => registry
+            .preferred_size(id, config)
+            .map(|size| {
+                NotchGeometry::new(
+                    size.width.min(config.width as f32),
+                    size.height.min(config.expanded_height as f32),
+                    idle_geometry.radius,
+                    idle_geometry.corner_size,
+                    idle_geometry.edge,
+                )
+            })
+            .unwrap_or_else(|| {
+                NotchGeometry::new(
+                    config.width as f32,
+                    config.expanded_height as f32,
+                    config.corner_radius as f32,
+                    config.corner_size as f32,
+                    config.edge.into(),
+                )
+            }),
     }
-
-    let module_count = config
-        .modules
-        .iter()
-        .filter(|module| is_known_module(module))
-        .count();
-    let calculated_width = 32.0 + module_count as f32 * 44.0;
-    NotchGeometry::new(
-        calculated_width
-            .max(geometry.width)
-            .min(config.width as f32),
-        geometry.height,
-        geometry.radius,
-        geometry.corner_size,
-        geometry.edge,
-    )
 }
 
 impl NotchView {
     fn apply_config(&mut self, config: NotchConfig, tokens: DesignTokens, cx: &mut Context<Self>) {
         self.config = config;
         self.tokens = tokens;
-        let target = self.target_geometry(self.state);
+        let target = self.target_geometry(self.route);
         let duration_ms = if self.config.animation.enabled {
             self.config.animation.duration_ms
         } else {
@@ -641,25 +696,34 @@ impl NotchView {
         cx.notify();
     }
 
-    fn set_state(&mut self, state: NotchState, window: &mut Window, cx: &mut Context<Self>) {
-        if self.state == state && !self.animation.is_running() {
+    fn set_route(&mut self, route: NotchRoute, window: &mut Window, cx: &mut Context<Self>) {
+        if self.route == route && !self.animation.is_running() {
             return;
         }
 
-        self.state = state;
-        match state {
-            NotchState::Idle => {
+        if let NotchRoute::Module(id) = route {
+            if let Err(error) = self.module_registry.borrow_mut().activate(id) {
+                tracing::warn!(%error, "cannot activate unregistered notch module");
+                return;
+            }
+        } else {
+            self.module_registry.borrow_mut().deactivate();
+        }
+
+        self.route = route;
+        match route {
+            NotchRoute::Idle => {
                 self.focus_manager.dismiss_notch();
                 self.query.clear();
                 window.blur(cx);
             }
-            NotchState::Launcher => {
+            NotchRoute::Module(_) => {
                 self.focus_manager.activate_notch();
                 window.focus(&self.focus_handle, cx);
             }
         }
 
-        let target = self.target_geometry(state);
+        let target = self.target_geometry(route);
         let duration_ms = if self.config.animation.enabled {
             self.config.animation.duration_ms
         } else {
@@ -757,7 +821,7 @@ impl Render for NotchView {
         window.set_input_region(Some(&input_rects));
 
         let focus_handle = self.focus_handle.clone();
-        let state = self.state;
+        let route = self.route;
         let geometry_for_click = geometry;
         let tokens = self.tokens.clone();
         let paint_tokens = tokens.clone();
@@ -766,6 +830,18 @@ impl Render for NotchView {
         let modules = self.config.modules.clone();
         let snapshot = self.snapshot.clone();
         let commands = self.commands.clone();
+        let notch = self.config.clone();
+        let module_registry = self.module_registry.clone();
+        let module_context = ModuleContext {
+            module: ModuleId::Clock,
+            module_key: String::new(),
+            tokens: tokens.clone(),
+            notch,
+            clock,
+            query,
+            snapshot,
+            commands,
+        };
 
         div()
             .id("shell-notch-root")
@@ -782,17 +858,19 @@ impl Render for NotchView {
 
                     if view.focus_manager.owns_modal_pointer() {
                         if view.focus_manager.click_outside(inside) {
-                            view.set_state(NotchState::Idle, window, cx);
+                            view.set_route(NotchRoute::Idle, window, cx);
                         }
                     } else if inside {
-                        view.set_state(NotchState::Launcher, window, cx);
+                        view.set_route(NotchRoute::Module(ModuleId::Launcher), window, cx);
                     }
                 }),
             )
             .on_key_down(cx.listener(|view, event: &KeyDownEvent, window, cx| {
                 if event.keystroke.key == "escape" && view.focus_manager.escape() {
-                    view.set_state(NotchState::Idle, window, cx);
-                } else if view.focus_manager.owns_keyboard() {
+                    view.set_route(NotchRoute::Idle, window, cx);
+                } else if view.route == NotchRoute::Module(ModuleId::Launcher)
+                    && view.focus_manager.owns_keyboard()
+                {
                     let changed = if event.keystroke.key == "backspace" {
                         view.query.pop().is_some()
                     } else if let Some(character) = &event.keystroke.key_char {
@@ -830,63 +908,30 @@ impl Render for NotchView {
                     .top(px(notch_bounds.origin.y))
                     .w(px(notch_bounds.size.width))
                     .h(px(notch_bounds.size.height))
-                    .when(state == NotchState::Launcher, |element| {
-                        element.child(launcher_content(
-                            &query,
-                            &tokens,
-                            geometry.width,
-                            geometry.height,
-                        ))
+                    .when(route == NotchRoute::Idle, |element| {
+                        let module_elements = module_registry
+                            .borrow_mut()
+                            .render_configured(&modules, module_context.clone());
+                        element.child(idle_content(module_elements, &tokens))
                     })
-                    .when(state == NotchState::Idle, |element| {
-                        element.child(idle_content(
-                            &modules, &clock, &snapshot, &commands, &tokens,
-                        ))
-                    }),
+                    .when_some(
+                        match route {
+                            NotchRoute::Module(id) => Some(id),
+                            NotchRoute::Idle => None,
+                        },
+                        |element, id| {
+                            let module = module_registry
+                                .borrow_mut()
+                                .render_module(id, module_context.clone())
+                                .unwrap_or_else(|| div().into_any_element());
+                            element.child(module)
+                        },
+                    ),
             )
     }
 }
 
-const LAUNCHER_ITEMS: &[(&str, &str, &str)] = &[
-    (
-        "◉",
-        "About Xfce",
-        "Information about the Xfce Desktop Environment",
-    ),
-    (
-        "▣",
-        "Advanced Network Configuration",
-        "Manage and change network connection settings",
-    ),
-    ("△", "Alacritty", "Terminal"),
-    (
-        "◌",
-        "AsusCtlTray",
-        "A tray icon to switch asusctl profiles on the fly",
-    ),
-    (
-        "✣",
-        "auto-cpufreq",
-        "Automatic CPU frequency and power optimizer",
-    ),
-    (
-        "◈",
-        "Avahi SSH Server Browser",
-        "Browse for Zeroconf-enabled SSH Servers",
-    ),
-];
-
-fn idle_content(
-    modules: &[String],
-    clock: &SharedString,
-    snapshot: &CompositorSnapshot,
-    commands: &mpsc::Sender<ShellCommand>,
-    tokens: &DesignTokens,
-) -> impl IntoElement {
-    let module_elements = modules
-        .iter()
-        .filter_map(|module| module_element(module, clock, snapshot, commands, tokens));
-
+fn idle_content(module_elements: Vec<ModuleView>, tokens: &DesignTokens) -> impl IntoElement {
     div()
         .w_full()
         .h_full()
@@ -899,55 +944,6 @@ fn idle_content(
         .children(module_elements)
 }
 
-fn module_element(
-    module: &str,
-    clock: &SharedString,
-    snapshot: &CompositorSnapshot,
-    commands: &mpsc::Sender<ShellCommand>,
-    tokens: &DesignTokens,
-) -> Option<gpui::Div> {
-    let element = div()
-        .flex()
-        .items_center()
-        .gap(px(4.0))
-        .text_color(rgb(tokens.colors.foreground));
-
-    match module {
-        "clock" => Some(element.child(clock.clone())),
-        "network" => Some(
-            element.child(
-                div()
-                    .text_size(px(tokens.typography.label_size as f32 - 2.0))
-                    .child("▮▮▮"),
-            ),
-        ),
-        "audio" => Some(element.child("◖")),
-        "battery" => Some(element.child("▰")),
-        "media" => Some(element.child("▶")),
-        "workspaces" => {
-            let workspace = snapshot.focused_workspace?;
-            let sender = commands.clone();
-            Some(
-                element
-                    .child(format!("WS {workspace}"))
-                    .on_mouse_down(gpui::MouseButton::Left, move |_event, _window, _cx| {
-                        if let Err(error) = sender.send(ShellCommand::FocusWorkspace(workspace)) {
-                            tracing::warn!(%error, ?workspace, "could not enqueue workspace focus command");
-                        }
-                    }),
-            )
-        }
-        _ => None,
-    }
-}
-
-fn is_known_module(module: &str) -> bool {
-    matches!(
-        module,
-        "clock" | "network" | "audio" | "battery" | "media" | "workspaces"
-    )
-}
-
 fn focused_output_size(snapshot: &CompositorSnapshot) -> Option<(f32, f32)> {
     let output = snapshot
         .focused_output
@@ -957,92 +953,6 @@ fn focused_output_size(snapshot: &CompositorSnapshot) -> Option<(f32, f32)> {
     let height = output.geometry.size.height;
     (width.is_finite() && width > 0.0 && height.is_finite() && height > 0.0)
         .then_some((width, height))
-}
-
-fn launcher_content(
-    query: &str,
-    tokens: &DesignTokens,
-    width: f32,
-    height: f32,
-) -> impl IntoElement {
-    let query_lower = query.to_lowercase();
-    let rows = LAUNCHER_ITEMS
-        .iter()
-        .filter(|(_, name, description)| {
-            query_lower.is_empty()
-                || name.to_lowercase().contains(&query_lower)
-                || description.to_lowercase().contains(&query_lower)
-        })
-        .map(|(icon, name, description)| {
-            div()
-                .w_full()
-                .h(px(44.0))
-                .px(px(tokens.spacing.sm as f32))
-                .rounded(px(tokens.radius.sm as f32))
-                .flex()
-                .items_center()
-                .gap(px(tokens.spacing.sm as f32))
-                .bg(rgba(0x242424e8))
-                .text_color(rgb(tokens.colors.foreground))
-                .child(
-                    div()
-                        .w(px(28.0))
-                        .h(px(28.0))
-                        .rounded(px(tokens.radius.sm as f32))
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .bg(rgba(0x3b3b3bf0))
-                        .text_size(px(tokens.typography.title_size as f32 - 2.0))
-                        .child(*icon),
-                )
-                .child(
-                    div()
-                        .flex()
-                        .flex_col()
-                        .gap(px(1.0))
-                        .child(
-                            div()
-                                .text_size(px(tokens.typography.body_size as f32))
-                                .font_weight(FontWeight::BOLD)
-                                .child(*name),
-                        )
-                        .child(
-                            div()
-                                .text_size(px(tokens.typography.label_size as f32 - 1.0))
-                                .text_color(rgba(0xaaa6a6e6))
-                                .child(*description),
-                        ),
-                )
-        });
-
-    div()
-        .w(px(width))
-        .h(px(height))
-        .p(px(tokens.spacing.md as f32))
-        .flex()
-        .flex_col()
-        .gap(px(tokens.spacing.sm as f32))
-        .text_color(rgb(tokens.colors.foreground))
-        .child(
-            div()
-                .w_full()
-                .h(px(40.0))
-                .px(px(tokens.spacing.sm as f32))
-                .flex()
-                .items_center()
-                .gap(px(tokens.spacing.sm as f32))
-                .border_b(px(1.0))
-                .border_color(rgba(0x8b8b8b66))
-                .text_size(px(tokens.typography.body_size as f32))
-                .child("⌕")
-                .child(if query.is_empty() {
-                    "Search...".to_string()
-                } else {
-                    query.to_owned()
-                }),
-        )
-        .child(div().flex().flex_col().gap(px(2.0)).children(rows))
 }
 
 fn build_notch_path(geometry: NotchGeometry, origin: gpui::Point<Pixels>) -> Option<Path<Pixels>> {
