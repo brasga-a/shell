@@ -17,7 +17,7 @@ jobs:
           components: rustfmt, clippy
 
       - name: Install native Wayland dependencies
-        run: sudo apt-get update && sudo apt-get install --yes libfontconfig1-dev libfreetype6-dev libwayland-dev libxkbcommon-dev
+        run: sudo apt-get update && sudo apt-get install --yes libfontconfig1-dev libfreetype6-dev libwayland-dev libxkbcommon-dev libxkbcommon-x11-dev
 
       - name: Check workspace
         run: cargo check --workspace --all-targets

@@ -4104,66 +4104,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "shell-module-calendar"
-version = "0.1.0"
-dependencies = [
- "shell-core",
- "shell-ui-gpui",
-]
-
-[[package]]
-name = "shell-module-clock"
-version = "0.1.0"
-dependencies = [
- "gpui",
- "shell-core",
- "shell-ui-gpui",
-]
-
-[[package]]
-name = "shell-module-launcher"
-version = "0.1.0"
-dependencies = [
- "gpui",
- "shell-core",
- "shell-ui-gpui",
-]
-
-[[package]]
-name = "shell-module-player"
-version = "0.1.0"
-dependencies = [
- "shell-core",
- "shell-ui-gpui",
-]
-
-[[package]]
-name = "shell-module-resources"
-version = "0.1.0"
-dependencies = [
- "gpui",
- "shell-core",
- "shell-ui-gpui",
- "tracing",
-]
-
-[[package]]
-name = "shell-module-settings"
-version = "0.1.0"
-dependencies = [
- "shell-core",
- "shell-ui-gpui",
-]
-
-[[package]]
-name = "shell-module-theme"
-version = "0.1.0"
-dependencies = [
- "shell-core",
- "shell-ui-gpui",
-]
-
-[[package]]
 name = "lyon"
 version = "1.0.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6634,8 +6574,12 @@ dependencies = [
 
 [[package]]
 name = "shell-app"
-version = "0.1.0"
+version = "0.1.0-alpha.1"
 dependencies = [
+ "shell-config",
+ "shell-core",
+ "shell-hyprland",
+ "shell-linux",
  "shell-module-calendar",
  "shell-module-clock",
  "shell-module-launcher",
@@ -6643,10 +6587,6 @@ dependencies = [
  "shell-module-resources",
  "shell-module-settings",
  "shell-module-theme",
- "shell-config",
- "shell-core",
- "shell-hyprland",
- "shell-linux",
  "shell-platform",
  "shell-theme",
  "shell-ui-gpui",
@@ -6656,7 +6596,7 @@ dependencies = [
 
 [[package]]
 name = "shell-config"
-version = "0.1.0"
+version = "0.1.0-alpha.1"
 dependencies = [
  "arc-swap",
  "notify 8.2.0",
@@ -6670,14 +6610,14 @@ dependencies = [
 
 [[package]]
 name = "shell-core"
-version = "0.1.0"
+version = "0.1.0-alpha.1"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "shell-hyprland"
-version = "0.1.0"
+version = "0.1.0-alpha.1"
 dependencies = [
  "serde_json",
  "shell-core",
@@ -6686,14 +6626,74 @@ dependencies = [
 
 [[package]]
 name = "shell-linux"
-version = "0.1.0"
+version = "0.1.0-alpha.1"
 dependencies = [
  "shell-core",
 ]
 
 [[package]]
+name = "shell-module-calendar"
+version = "0.1.0-alpha.1"
+dependencies = [
+ "shell-core",
+ "shell-ui-gpui",
+]
+
+[[package]]
+name = "shell-module-clock"
+version = "0.1.0-alpha.1"
+dependencies = [
+ "gpui",
+ "shell-core",
+ "shell-ui-gpui",
+]
+
+[[package]]
+name = "shell-module-launcher"
+version = "0.1.0-alpha.1"
+dependencies = [
+ "gpui",
+ "shell-core",
+ "shell-ui-gpui",
+]
+
+[[package]]
+name = "shell-module-player"
+version = "0.1.0-alpha.1"
+dependencies = [
+ "shell-core",
+ "shell-ui-gpui",
+]
+
+[[package]]
+name = "shell-module-resources"
+version = "0.1.0-alpha.1"
+dependencies = [
+ "gpui",
+ "shell-core",
+ "shell-ui-gpui",
+ "tracing",
+]
+
+[[package]]
+name = "shell-module-settings"
+version = "0.1.0-alpha.1"
+dependencies = [
+ "shell-core",
+ "shell-ui-gpui",
+]
+
+[[package]]
+name = "shell-module-theme"
+version = "0.1.0-alpha.1"
+dependencies = [
+ "shell-core",
+ "shell-ui-gpui",
+]
+
+[[package]]
 name = "shell-platform"
-version = "0.1.0"
+version = "0.1.0-alpha.1"
 dependencies = [
  "shell-core",
  "tempfile",
@@ -6703,14 +6703,14 @@ dependencies = [
 
 [[package]]
 name = "shell-theme"
-version = "0.1.0"
+version = "0.1.0-alpha.1"
 dependencies = [
  "shell-core",
 ]
 
 [[package]]
 name = "shell-ui-gpui"
-version = "0.1.0"
+version = "0.1.0-alpha.1"
 dependencies = [
  "chrono",
  "gpui",
