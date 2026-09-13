@@ -10,5 +10,6 @@ shell-core.workspace = true
 shell-config.workspace = true
 shell-platform.workspace = true
 shell-theme.workspace = true
+gpui-kit.workspace = true
 gpui.workspace = true
 gpui-platform.workspace = true
