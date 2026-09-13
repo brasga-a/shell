@@ -9,12 +9,20 @@ pub struct ColorTokens {
     pub foreground: u32,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct TypographyTokens {
+    pub body_size: u32,
+    pub label_size: u32,
+    pub title_size: u32,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DesignTokens {
     pub colors: ColorTokens,
     pub radius: ThemeScale,
     pub spacing: ThemeScale,
     pub motion: shell_core::MotionConfig,
+    pub typography: TypographyTokens,
 }
 
 impl DesignTokens {
@@ -34,6 +42,11 @@ impl DesignTokens {
             radius: config.radius,
             spacing: config.spacing,
             motion: config.motion,
+            typography: TypographyTokens {
+                body_size: config.typography.body_size,
+                label_size: config.typography.label_size,
+                title_size: config.typography.title_size,
+            },
         }
     }
 }

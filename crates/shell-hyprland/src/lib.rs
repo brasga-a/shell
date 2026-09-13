@@ -7,7 +7,7 @@ mod events;
 mod ipc;
 mod translate;
 
-use std::{fmt::Write as _, thread, time::Duration};
+use std::{thread, time::Duration};
 
 use shell_core::{
     CompositorCapabilities, CompositorError, CompositorEventStream, CompositorPort,
@@ -88,13 +88,19 @@ impl CompositorPort for HyprlandCompositor {
 
     fn focus_workspace(&self, workspace_id: WorkspaceId) -> Result<(), CompositorError> {
         let selector = self.workspace_selector(workspace_id)?;
-        let command = format!("dispatch workspace {selector}");
+        let command = format!(
+            "dispatch hl.dsp.focus({{ workspace = {} }})",
+            lua_string(&selector)
+        );
         command_result(&self.ipc()?.request(&command)?, &command)
     }
 
     fn focus_window(&self, window_id: WindowId) -> Result<(), CompositorError> {
-        let mut command = String::from("dispatch focuswindow address:0x");
-        write!(&mut command, "{:x}", window_id.get()).expect("writing to String cannot fail");
+        let selector = format!("address:0x{:x}", window_id.get());
+        let command = format!(
+            "dispatch hl.dsp.focus({{ window = {} }})",
+            lua_string(&selector)
+        );
         command_result(&self.ipc()?.request(&command)?, &command)
     }
 
@@ -279,6 +285,10 @@ fn command_result(response: &str, command: &str) -> Result<(), CompositorError> 
     })
 }
 
+fn lua_string(value: &str) -> String {
+    format!("\"{}\"", value.replace('\\', "\\\\").replace('"', "\\\""))
+}
+
 fn workspace_selector_for(
     workspace_id: WorkspaceId,
     name: Option<String>,
@@ -304,19 +314,35 @@ mod tests {
         CompositorSnapshot, FullscreenState, Output, OutputId, Rect, Window, WindowId, WorkspaceId,
     };
 
-    use super::{command_result, workspace_selector_for};
+    use super::{command_result, lua_string, workspace_selector_for};
 
     #[test]
     fn accepts_successful_dispatch_responses() {
-        assert!(command_result("ok\n", "dispatch workspace 1").is_ok());
-        assert!(command_result("", "dispatch workspace 1").is_ok());
+        assert!(command_result("ok\n", "dispatch hl.dsp.focus(...)").is_ok());
+        assert!(command_result("", "dispatch hl.dsp.focus(...)").is_ok());
     }
 
     #[test]
     fn rejects_dispatch_error_responses() {
-        let error = command_result("unknown dispatcher", "dispatch workspace 1")
+        let error = command_result("unknown dispatcher", "dispatch hl.dsp.focus(...)")
             .expect_err("error response must not be hidden");
         assert!(error.to_string().contains("unknown dispatcher"));
+    }
+
+    #[test]
+    fn encodes_workspace_focus_for_the_lua_dispatch_api() {
+        let selector = "1";
+        let command = format!(
+            "dispatch hl.dsp.focus({{ workspace = {} }})",
+            lua_string(selector)
+        );
+
+        assert_eq!(command, "dispatch hl.dsp.focus({ workspace = \"1\" })");
+    }
+
+    #[test]
+    fn escapes_lua_string_selectors() {
+        assert_eq!(lua_string("name:\"mail\""), "\"name:\\\"mail\\\"\"");
     }
 
     #[test]

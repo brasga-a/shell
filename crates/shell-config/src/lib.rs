@@ -509,6 +509,8 @@ struct ThemeFile {
     spacing: shell_core::ThemeScale,
     #[serde(default)]
     motion: shell_core::MotionConfig,
+    #[serde(default)]
+    typography: shell_core::TypographyConfig,
 }
 
 impl ThemeFile {
@@ -518,6 +520,7 @@ impl ThemeFile {
             radius: self.radius,
             spacing: self.spacing,
             motion: self.motion,
+            typography: self.typography,
         }
     }
 
@@ -527,6 +530,7 @@ impl ThemeFile {
             radius: config.theme.radius,
             spacing: config.theme.spacing,
             motion: config.theme.motion,
+            typography: config.theme.typography,
         }
     }
 }
@@ -656,12 +660,22 @@ impl BarConfigFile {
 struct NotchConfigFile {
     #[serde(default = "default_true")]
     enabled: bool,
+    #[serde(default = "default_notch_modules")]
+    modules: Vec<String>,
+    #[serde(default = "default_notch_collapsed_width")]
+    collapsed_width: u32,
     #[serde(default = "default_notch_width")]
     width: u32,
     #[serde(default = "default_notch_collapsed_height")]
     collapsed_height: u32,
     #[serde(default = "default_notch_expanded_height")]
     expanded_height: u32,
+    #[serde(default = "default_notch_corner_radius")]
+    corner_radius: u32,
+    #[serde(default = "default_notch_corner_size")]
+    corner_size: u32,
+    #[serde(default)]
+    edge: shell_core::BarPosition,
     #[serde(default)]
     animation: shell_core::AnimationConfig,
 }
@@ -671,9 +685,14 @@ impl Default for NotchConfigFile {
         let config = NotchConfig::default();
         Self {
             enabled: config.enabled,
+            modules: config.modules.clone(),
+            collapsed_width: config.collapsed_width,
             width: config.width,
             collapsed_height: config.collapsed_height,
             expanded_height: config.expanded_height,
+            corner_radius: config.corner_radius,
+            corner_size: config.corner_size,
+            edge: config.edge,
             animation: config.animation,
         }
     }
@@ -681,6 +700,14 @@ impl Default for NotchConfigFile {
 
 fn default_notch_width() -> u32 {
     NotchConfig::default().width
+}
+
+fn default_notch_collapsed_width() -> u32 {
+    NotchConfig::default().collapsed_width
+}
+
+fn default_notch_modules() -> Vec<String> {
+    NotchConfig::default().modules
 }
 
 fn default_notch_collapsed_height() -> u32 {
@@ -691,11 +718,29 @@ fn default_notch_expanded_height() -> u32 {
     NotchConfig::default().expanded_height
 }
 
+fn default_notch_corner_radius() -> u32 {
+    NotchConfig::default().corner_radius
+}
+
+fn default_notch_corner_size() -> u32 {
+    NotchConfig::default().corner_size
+}
+
 impl NotchConfigFile {
     fn into_config(self) -> NotchConfig {
         let defaults = NotchConfig::default();
         NotchConfig {
             enabled: self.enabled,
+            modules: if self.modules.is_empty() {
+                defaults.modules.clone()
+            } else {
+                self.modules
+            },
+            collapsed_width: if self.collapsed_width == 0 {
+                defaults.collapsed_width
+            } else {
+                self.collapsed_width
+            },
             width: if self.width == 0 {
                 defaults.width
             } else {
@@ -711,6 +756,17 @@ impl NotchConfigFile {
             } else {
                 self.expanded_height
             },
+            corner_radius: if self.corner_radius == 0 {
+                defaults.corner_radius
+            } else {
+                self.corner_radius
+            },
+            corner_size: if self.corner_size == 0 {
+                defaults.corner_size
+            } else {
+                self.corner_size
+            },
+            edge: self.edge,
             animation: self.animation,
         }
     }
@@ -718,9 +774,14 @@ impl NotchConfigFile {
     fn from_config(config: &ShellConfig) -> Self {
         Self {
             enabled: config.notch.enabled,
+            modules: config.notch.modules.clone(),
+            collapsed_width: config.notch.collapsed_width,
             width: config.notch.width,
             collapsed_height: config.notch.collapsed_height,
             expanded_height: config.notch.expanded_height,
+            corner_radius: config.notch.corner_radius,
+            corner_size: config.notch.corner_size,
+            edge: config.notch.edge,
             animation: config.notch.animation.clone(),
         }
     }
