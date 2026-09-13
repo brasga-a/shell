@@ -11,23 +11,54 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect code changes
+        id: changes
+        shell: bash
+        run: |
+          code_changed=false
+
+          while IFS= read -r file; do
+            case "$file" in
+              *.md)
+                ;;
+              *)
+                code_changed=true
+                break
+                ;;
+            esac
+          done < <(git diff --name-only "${{ github.event.pull_request.base.sha }}" "${{ github.event.pull_request.head.sha }}")
+
+          echo "code_changed=$code_changed" >> "$GITHUB_OUTPUT"
+
+      - name: Skip Rust checks for documentation-only PR
+        if: steps.changes.outputs.code_changed != 'true'
+        run: echo 'Only Markdown files changed; Rust checks are not required.'
 
       - name: Install Rust toolchain
+        if: steps.changes.outputs.code_changed == 'true'
         uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
 
       - name: Install native Wayland dependencies
+        if: steps.changes.outputs.code_changed == 'true'
         run: sudo apt-get update && sudo apt-get install --yes libfontconfig1-dev libfreetype6-dev libwayland-dev libxkbcommon-dev libxkbcommon-x11-dev
 
       - name: Check workspace
+        if: steps.changes.outputs.code_changed == 'true'
         run: cargo check --workspace --all-targets
 
       - name: Test workspace
+        if: steps.changes.outputs.code_changed == 'true'
         run: cargo test --workspace
 
       - name: Check formatting
+        if: steps.changes.outputs.code_changed == 'true'
         run: cargo fmt --all --check
 
       - name: Run Clippy
+        if: steps.changes.outputs.code_changed == 'true'
         run: cargo clippy --workspace --all-targets -- -D warnings
