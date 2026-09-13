@@ -1,17 +1,57 @@
 # milestones.md
 
-# Project Milestones — Linux Shell UI
+# Project Milestones — Luna Linux Shell
 
-This document defines the execution roadmap for the Rust/Wayland Linux shell project.
+This document defines the execution roadmap for the Rust/Wayland shell.
 
 It complements:
 
+- [README.md](./README.md)
+- [module-crate-migration.md](./module-crate-migration.md)
+- [modules/README.md](./modules/README.md)
 - [decisions.md](./decisions.md)
 - [invariants.md](./invariants.md)
 - [gates.md](./gates.md)
 - [ADRs](./adrs/README.md)
 
-The project must not advance to the next milestone while a mandatory gate of the current milestone is failing.
+Mandatory gates still control progression. Module sub-milestones use completion criteria when no dedicated gate exists yet.
+
+---
+
+# Module delivery map
+
+The initial module set is:
+
+```text
+crates/modules/
+├── launcher/
+├── calendar/
+├── player/
+├── theme/
+├── resources/
+├── clock/
+└── settings/
+```
+
+Recommended implementation order:
+
+```text
+Clock
+  ↓
+Launcher
+  ↓
+Linux service baseline
+  ↓
+Player + Calendar
+  ↓
+Resources
+  ↓
+Theme
+  ↓
+Settings
+```
+
+The Notch remains the host/casca. The module crates provide feature content and are registered by `shell-app`.
 
 ---
 
@@ -19,13 +59,13 @@ The project must not advance to the next milestone while a mandatory gate of the
 
 ## Objective
 
-Create the repository structure and dependency boundaries before implementing visible shell features.
+Create the workspace and dependency boundaries before visible shell features.
 
 ## Steps
 
 ### 0.1 — Create Cargo workspace
 
-Initial structure:
+Target structure:
 
 ```text
 crates/
@@ -36,18 +76,27 @@ crates/
 ├── shell-config/
 ├── shell-theme/
 ├── shell-ui-gpui/
-└── shell-app/
+├── shell-app/
+└── modules/
+    ├── launcher/
+    ├── calendar/
+    ├── player/
+    ├── theme/
+    ├── resources/
+    ├── clock/
+    └── settings/
 ```
 
-### 0.2 — Define core domain primitives
+Module crates may initially contain only minimal library scaffolding until their implementation milestone.
 
-Create initial types:
+### 0.2 — Define core domain primitives
 
 ```text
 OutputId
 WorkspaceId
 WindowId
 SurfaceId
+ModuleId
 
 Point
 Size
@@ -60,16 +109,12 @@ Window
 
 ### 0.3 — Define first application ports
 
-Start with:
-
 ```text
 CompositorPort
 ConfigPort
 ```
 
 ### 0.4 — Establish error boundaries
-
-Initial candidates:
 
 ```text
 CompositorError
@@ -79,26 +124,24 @@ PlatformError
 
 ### 0.5 — Add observability baseline
 
-Configure `tracing` and `tracing-subscriber`.
+Use `tracing` and `tracing-subscriber`.
 
 ### 0.6 — Add repository checks
 
-CI must run:
-
 ```text
-cargo check
-cargo test
+cargo check --workspace
+cargo test --workspace
 cargo fmt --check
-cargo clippy
+cargo clippy --workspace
 ```
 
 ## Deliverables
 
 ```text
 compiling Cargo workspace
-dependency graph respecting architecture
-initial core types
-initial ports
+module crate skeletons
+architecture-respecting dependency graph
+initial core types and ports
 structured logging
 CI pipeline
 ```
@@ -108,15 +151,18 @@ CI pipeline
 - `shell-core` compiles without GPUI.
 - `shell-core` compiles without Hyprland-specific dependencies.
 - `shell-app` is the composition root.
-- No UI or compositor implementation leaks into domain types.
+- module crates are workspace members.
+- no module crate is required by `shell-ui-gpui` as a concrete dependency.
 
-## Required references
+## References
 
-- [decisions.md — D001, D003, D004, D023](./decisions.md)
-- [invariants.md — I001, I002, I016, I023, I024](./invariants.md)
-- [gates.md — G00 Repository Foundation](./gates.md)
-- [ADR-002 — Hexagonal Architecture](./adrs/ADR-002-hexagonal-architecture-for-shell-boundaries.md)
-- [ADR-023 — Cargo Workspace Boundaries](./adrs/ADR-023-cargo-workspace-boundaries.md)
+- [Module migration plan](./module-crate-migration.md)
+- [Module architecture](./modules/README.md)
+- [decisions.md](./decisions.md)
+- [invariants.md](./invariants.md)
+- [gates.md — G00](./gates.md)
+- [ADR-002](./adrs/ADR-002-hexagonal-architecture-for-shell-boundaries.md)
+- [ADR-023](./adrs/ADR-023-cargo-workspace-boundaries.md)
 
 ## Exit gate
 
@@ -128,11 +174,9 @@ CI pipeline
 
 ## Objective
 
-Prove that GPUI can operate as the shell frontend before building product features on top of it.
+Prove GPUI can operate as the shell frontend before feature investment.
 
 ## Steps
-
-### 1.1 — Minimal GPUI application
 
 Validate:
 
@@ -141,42 +185,16 @@ startup
 rendering
 pointer input
 keyboard input
-resizing
-shutdown
-```
-
-### 1.2 — Transparent surface
-
-Render a transparent surface with visible custom content.
-
-### 1.3 — Investigate Linux backend boundary
-
-Identify exactly where GPUI exposes or must be extended for:
-
-```text
-Wayland surface creation
-layer-shell
-output selection
-keyboard interactivity
-input regions
-```
-
-### 1.4 — Layer-shell PoC
-
-Create `Layer::Top`, then `Layer::Overlay`.
-
-### 1.5 — Validate shell semantics
-
-Test:
-
-```text
+transparent surface
+Layer::Top
+Layer::Overlay
 anchors
 exclusive zone
-transparent background
-keyboard interactivity
 specific output targeting
-fullscreen application interaction
+fullscreen interaction
 ```
+
+Document exactly where GPUI exposes or must be extended for layer-shell, output selection, keyboard interactivity and input regions.
 
 ## Deliverables
 
@@ -184,22 +202,20 @@ fullscreen application interaction
 minimal GPUI Wayland executable
 transparent shell surface
 layer-shell PoC
-documented GPUI backend limitations
+documented backend limitations
 ```
 
 ## Completion criteria
 
 The project can create a reliable shell surface under Hyprland.
 
-If layer-shell cannot be implemented cleanly, stop here and reopen the frontend decision.
+If this fails, reopen the frontend decision before implementing modules.
 
-## Required references
+## References
 
-- [decisions.md — D002, D003, D006](./decisions.md)
-- [invariants.md — I001, I007, I038](./invariants.md)
 - [gates.md — G01, G02](./gates.md)
-- [ADR-001 — GPUI as Initial Frontend](./adrs/ADR-001-gpui-as-the-initial-frontend.md)
-- [ADR-004 — Wayland Layer-Shell Integration](./adrs/ADR-004-wayland-layer-shell-integration-strategy.md)
+- [ADR-001](./adrs/ADR-001-gpui-as-the-initial-frontend.md)
+- [ADR-004](./adrs/ADR-004-wayland-layer-shell-integration-strategy.md)
 
 ## Exit gates
 
@@ -214,102 +230,46 @@ G02 — Layer Shell Viability
 
 ## Objective
 
-Resolve the shell's Wayland surface topology and establish correct per-output lifecycle.
+Resolve shell surface topology and per-output lifecycle.
 
 ## Steps
 
-### 2.1 — Implement unified surface experiment
-
-Prototype:
+Compare:
 
 ```text
-Output
-└── fullscreen transparent surface
-    ├── panel region
-    ├── notch region
-    └── overlay region
+A. unified transparent surface per output
+B. independent panel/notch/overlay layer surfaces
 ```
 
-### 2.2 — Implement independent surface experiment
-
-Prototype:
-
-```text
-Output
-├── panel surface
-├── notch surface
-└── overlay surface
-```
-
-### 2.3 — Compare input behavior
-
-Test both approaches for:
+Validate:
 
 ```text
 click-through
 input regions
 keyboard focus
-click-outside detection
-```
-
-### 2.4 — Compare lifecycle behavior
-
-Test:
-
-```text
-surface resizing
-workspace switching
+click-outside
 fullscreen windows
 output hotplug
 output removal
+fractional scaling
 ```
 
-### 2.5 — Resolve ADR-005
-
-Select the surface topology using measured behavior rather than preference.
-
-### 2.6 — Implement OutputState
-
-```rust
-struct OutputState {
-    id: OutputId,
-    geometry: Rect,
-    scale: f32,
-}
-```
-
-### 2.7 — Add output hotplug lifecycle
-
-Support add/change/remove without restarting the shell.
-
-### 2.8 — Validate fractional scaling
-
-Verify layout, geometry and hit testing under non-1.0 scale.
+Resolve ADR-005 based on measured behavior and implement explicit `OutputState`.
 
 ## Deliverables
 
 ```text
-surface topology comparison
-accepted surface architecture
+selected surface topology
 multi-monitor state model
 output lifecycle manager
 fractional scaling validation
 ```
 
-## Completion criteria
+## References
 
-- One surface topology is formally selected.
-- Multiple outputs work independently.
-- Surface ownership is explicit.
-- Output hotplug does not crash the shell.
-
-## Required references
-
-- [decisions.md — D006, D007, D008](./decisions.md)
-- [invariants.md — I005, I006, I007, I026, I027](./invariants.md)
 - [gates.md — G03, G04](./gates.md)
-- [ADR-005 — Shell Surface Topology](./adrs/ADR-005-shell-surface-topology.md)
-- [ADR-006 — Multi-Monitor State](./adrs/ADR-006-multi-monitor-state-and-surface-ownership.md)
+- [ADR-005](./adrs/ADR-005-shell-surface-topology.md)
+- [ADR-006](./adrs/ADR-006-multi-monitor-state-and-surface-ownership.md)
 
 ## Exit gates
 
@@ -324,73 +284,32 @@ G04 — Multi-Monitor Correctness
 
 ## Objective
 
-Establish Hyprland as the first compositor adapter without allowing Hyprland-specific data to define application state.
+Establish Hyprland as the first compositor adapter.
 
 ## Steps
 
-### 3.1 — Implement Hyprland IPC client
-
-Support command and state requests.
-
-### 3.2 — Implement event socket listener
-
-Subscribe to relevant compositor events.
-
-### 3.3 — Define compositor domain models
+Implement:
 
 ```text
-Monitor
-Workspace
-Window
-FocusedWindow
-FullscreenState
-```
-
-### 3.4 — Translate Hyprland payloads
-
-All raw JSON/string events terminate inside `shell-hyprland`.
-
-### 3.5 — Implement initial CompositorPort
-
-Required operations:
-
-```text
-list monitors
-list workspaces
-list windows
-focus workspace
-focus window
-```
-
-### 3.6 — Add compositor capabilities
-
-Represent optional features explicitly.
-
-### 3.7 — Handle compositor races
-
-Test disappearing windows, output removal, workspace reassignment and `None` focused windows.
-
-## Deliverables
-
-```text
-Hyprland adapter
-event-driven compositor state
-CompositorPort implementation
+IPC client
+event socket
+monitor/workspace/window domain models
+CompositorPort
 capability model
 reconnect/error handling
 ```
 
+Raw Hyprland payloads terminate inside `shell-hyprland`.
+
 ## Completion criteria
 
-The frontend can consume real compositor state without seeing raw Hyprland payloads.
+The UI and modules consume compositor state without knowing raw Hyprland payloads.
 
-## Required references
+## References
 
-- [decisions.md — D005, D009, D010](./decisions.md)
-- [invariants.md — I002, I010, I022, I028, I030](./invariants.md)
 - [gates.md — G05](./gates.md)
-- [ADR-007 — Hyprland Adapter](./adrs/ADR-007-hyprland-as-a-compositor-adapter.md)
-- [ADR-008 — Compositor Capability Model](./adrs/ADR-008-compositor-port-and-capability-model.md)
+- [ADR-007](./adrs/ADR-007-hyprland-as-a-compositor-adapter.md)
+- [ADR-008](./adrs/ADR-008-compositor-port-and-capability-model.md)
 
 ## Exit gate
 
@@ -402,78 +321,30 @@ The frontend can consume real compositor state without seeing raw Hyprland paylo
 
 ## Objective
 
-Create the first useful shell component using real compositor state and proper application flow.
+Create the first useful shell surface using real compositor state.
 
 ## Steps
 
-### 4.1 — Create design tokens baseline
-
-Add:
+Implement:
 
 ```text
-colors
-spacing
-radius
-typography
-```
-
-### 4.2 — Build panel container
-
-Implement panel geometry and surface behavior.
-
-### 4.3 — Add workspace module
-
-Display workspaces and focused workspace from real compositor state.
-
-### 4.4 — Add clock
-
-Keep timing/update logic out of arbitrary widget state where practical.
-
-### 4.5 — Add shell command path
-
-Workspace click must flow:
-
-```text
-UI
-↓
-application command
-↓
-CompositorPort
-↓
-Hyprland
-```
-
-### 4.6 — Record performance baseline
-
-Measure release build:
-
-```text
-cold startup
-idle RAM
-idle CPU
-```
-
-## Deliverables
-
-```text
-usable top panel
+panel container
 workspace selector
-clock
-initial theme tokens
-first performance baseline
+basic design tokens
+initial performance baseline
 ```
+
+The panel may show clock information temporarily, but the canonical interactive Clock feature will become `luna-module-clock` in Milestone 5A.
 
 ## Completion criteria
 
-The panel uses real event-driven compositor state and does not access Hyprland directly.
+The panel uses real event-driven state and never accesses Hyprland directly.
 
-## Required references
+## References
 
-- [decisions.md — D009, D010, D018, D021](./decisions.md)
-- [invariants.md — I009, I010, I020, I034](./invariants.md)
 - [gates.md — G06](./gates.md)
-- [ADR-009 — State Model](./adrs/ADR-009-shell-state-model-and-unidirectional-data-flow.md)
-- [ADR-021 — Design System](./adrs/ADR-021-centralized-design-system.md)
+- [ADR-009](./adrs/ADR-009-shell-state-model-and-unidirectional-data-flow.md)
+- [ADR-021](./adrs/ADR-021-centralized-design-system.md)
 
 ## Exit gate
 
@@ -481,98 +352,91 @@ The panel uses real event-driven compositor state and does not access Hyprland d
 
 ---
 
-# Milestone 5 — Notch Foundation
+# Milestone 5 — Notch Foundation and Module Host
 
 ## Objective
 
-Validate the main custom visual interaction of the shell.
+Establish the Notch as the dynamic host for independently owned module crates.
 
 ## Steps
 
-### 5.1 — Define NotchState
-
-Initial semantic states:
+### 5.1 — Implement Notch geometry
 
 ```text
-Idle
-Launcher
-```
-
-### 5.2 — Implement NotchGeometry
-
-Represent:
-
-```text
-width
-height
-radius
-corner size
-edge
-```
-
-### 5.3 — Render concave corners
-
-Evaluate in order:
-
-```text
-GPUI path/custom paint
-↓
-lyon/tessellation if required
-↓
-shader only if justified
-```
-
-### 5.4 — Add dynamic dimensions
-
-Support expansion and contraction.
-
-### 5.5 — Add animation
-
-Implement interruptible width/height transitions.
-
-### 5.6 — Implement focus coordinator
-
-Centralize:
-
-```text
-keyboard focus
+concave corners
+width/height transitions
+transparent hit regions
+focus ownership
 click outside
-modal ownership
-input-region expansion
 ```
 
-### 5.7 — Validate transparent hit regions
+### 5.2 — Create module host API
 
-Transparent geometry must not incorrectly block windows beneath it.
+Add under `shell-ui-gpui`:
 
-### 5.8 — Stress interaction
+```text
+module_host/
+├── module.rs
+├── registry.rs
+└── context.rs
+```
 
-Rapidly test open/close, interrupted transitions, Escape, click outside and workspace changes.
+The exact trait/API may evolve, but it must provide stable module identity, rendering entry point and controlled application context.
+
+### 5.3 — Add module routing
+
+Prefer:
+
+```rust
+enum NotchRoute {
+    Idle,
+    Module(ModuleId),
+}
+```
+
+instead of hardcoding every feature directly into the Notch state machine.
+
+### 5.4 — Add ModuleRegistry
+
+`shell-app` registers concrete module crates. `shell-ui-gpui` only knows the host contract.
+
+### 5.5 — Add sizing path
+
+```text
+module content
+→ measured/preferred size
+→ Notch target geometry
+→ animation
+→ surface/input region update
+```
+
+Modules do not resize Wayland surfaces directly.
 
 ## Deliverables
 
 ```text
-NotchState
 NotchGeometry
-working concave notch
-animation layer
+NotchState
 FocusManager
-input-region handling
+ModuleId
+NotchModule host contract
+ModuleRegistry
+module sizing path
 ```
 
 ## Completion criteria
 
-The notch can expand and collapse smoothly without corrupting focus, application state or pointer behavior.
+A fake/test module can be registered without modifying Notch rendering internals, activated by route, rendered, resized and dismissed.
 
-## Required references
+## References
 
-- [decisions.md — D015, D016, D017](./decisions.md)
-- [invariants.md — I008, I018, I019](./invariants.md)
+- [Module architecture](./modules/README.md)
+- [Module migration plan](./module-crate-migration.md)
 - [gates.md — G07, G08](./gates.md)
-- [ADR-017 — Focus/Input Coordination](./adrs/ADR-017-focus-keyboard-and-input-region-coordination.md)
-- [ADR-018 — Notch Feature Container](./adrs/ADR-018-notch-as-a-feature-container.md)
-- [ADR-019 — Custom Geometry](./adrs/ADR-019-custom-geometry-rendering.md)
-- [ADR-020 — Animation System](./adrs/ADR-020-animation-system.md)
+- [ADR-017](./adrs/ADR-017-focus-keyboard-and-input-region-coordination.md)
+- [ADR-018](./adrs/ADR-018-notch-as-a-feature-container.md)
+- [ADR-019](./adrs/ADR-019-custom-geometry-rendering.md)
+- [ADR-020](./adrs/ADR-020-animation-system.md)
 
 ## Exit gates
 
@@ -583,79 +447,81 @@ G08 — Notch Interaction
 
 ---
 
-# Milestone 6 — Launcher
+# Milestone 5A — Clock Module
 
 ## Objective
 
-Turn the notch into a real feature container with the first non-trivial application feature.
+Use the simplest real module to validate the crate/host boundary.
 
 ## Steps
 
-### 6.1 — Desktop entry discovery
-
-Parse freedesktop application entries.
-
-### 6.2 — Normalize application records
-
-Internal model:
+Create `luna-module-clock` with:
 
 ```text
-id
-name
-description
-icon
-exec information
+current date/time
+formatting
+12h/24h option
+live update policy
+Notch content layout
 ```
 
-### 6.3 — Build application index
+Register it through `shell-app` and open it through `ModuleId::Clock`.
 
-Support efficient filtering.
+## Completion criteria
 
-### 6.4 — Implement launcher UI
+- Clock is a standalone crate.
+- Notch does not import `ClockModule` directly.
+- the module uses shared primitives/theme.
+- opening Clock causes the Notch to size through the common host path.
 
-Support:
+## Reference
+
+- [Clock module](./modules/clock.md)
+
+---
+
+# Milestone 6 — Launcher Module
+
+## Objective
+
+Validate the module architecture with keyboard input, search and application actions.
+
+## Steps
+
+Implement in `luna-module-launcher`:
 
 ```text
-text input
+.desktop discovery
+normalized app records
+search/indexing
 keyboard navigation
 selection
-Enter
-Escape
+execution intent
+icon resolution
 ```
 
-### 6.5 — Implement application execution service
-
-Launching applications must not be performed ad hoc inside widgets.
-
-### 6.6 — Implement icon resolution
-
-Resolve freedesktop icon themes and fallbacks.
-
-### 6.7 — Test responsiveness
-
-Use a realistic application list.
+Application discovery/execution must be provided through a service boundary rather than direct widget subprocesses.
 
 ## Deliverables
 
 ```text
+launcher crate
 application discovery service
-launcher index
-launcher UI
 application execution service
-icon resolution
+icon resolver
+Notch launcher route
 ```
 
 ## Completion criteria
 
-Launcher behavior remains independent from notch rendering internals.
+The Launcher crate can be registered/removed from `shell-app` without changing Notch internals.
 
-## Required references
+## References
 
-- [decisions.md — D015, D018](./decisions.md)
-- [invariants.md — I003, I016, I036](./invariants.md)
+- [Launcher module](./modules/launcher.md)
 - [gates.md — G09](./gates.md)
-- [ADR-027 — Application Discovery](./adrs/ADR-027-application-discovery-and-launcher-execution.md)
-- [ADR-028 — Icons and Assets](./adrs/ADR-028-icons-and-asset-pipeline.md)
+- [ADR-027](./adrs/ADR-027-application-discovery-and-launcher-execution.md)
+- [ADR-028](./adrs/ADR-028-icons-and-asset-pipeline.md)
 
 ## Exit gate
 
@@ -667,68 +533,40 @@ Launcher behavior remains independent from notch rendering internals.
 
 ## Objective
 
-Establish the reusable service architecture for system state.
+Build reusable event-driven services consumed by modules and shell surfaces.
 
 ## Steps
 
-### 7.1 — Async infrastructure
-
-Settle the service-task/event bridge between adapters and application state.
-
-### 7.2 — Audio
-
-Implement volume, mute, commands and event updates.
-
-### 7.3 — Battery / Power
-
-Implement availability, percentage and charging state.
-
-### 7.4 — Network
-
-Implement connected state, current connection and basic status.
-
-### 7.5 — MPRIS
-
-Implement player detection, metadata, playback state and play/pause.
-
-### 7.6 — Share services across consumers
-
-Example:
+Implement:
 
 ```text
-AudioService
-├── panel
-├── OSD
-└── future settings
+async service bridge
+AudioPort
+PowerPort
+NetworkPort
+MediaPort / MPRIS
+resource metrics service baseline
 ```
 
-### 7.7 — Remove temporary CLI paths where appropriate
-
-Production integration should prefer native protocol/API adapters.
+Shared services must have one authoritative state source and be injected into consumers.
 
 ## Deliverables
 
 ```text
-async service bridge
-AudioPort implementation
-PowerPort implementation
-NetworkPort implementation
-MediaPort implementation
+audio service
+battery/power service
+network service
+MPRIS/media service
+resource metrics service
 ```
 
-## Completion criteria
+## References
 
-Each subsystem has one authoritative state source and failure does not crash the shell.
-
-## Required references
-
-- [decisions.md — D011, D012, D013, D014](./decisions.md)
-- [invariants.md — I010, I011, I012, I025, I035](./invariants.md)
 - [gates.md — G10, G11](./gates.md)
-- [ADR-011 — Async Runtime](./adrs/ADR-011-async-runtime-and-concurrency-model.md)
-- [ADR-012 — Linux Service Adapter Pattern](./adrs/ADR-012-linux-service-adapter-pattern.md)
-- [ADR-013 — D-Bus Stack](./adrs/ADR-013-d-bus-stack.md)
-- [ADR-014 — Audio Backend](./adrs/ADR-014-audio-backend.md)
+- [ADR-011](./adrs/ADR-011-async-runtime-and-concurrency-model.md)
+- [ADR-012](./adrs/ADR-012-linux-service-adapter-pattern.md)
+- [ADR-013](./adrs/ADR-013-d-bus-stack.md)
+- [ADR-014](./adrs/ADR-014-audio-backend.md)
 
 ## Exit gates
 
@@ -739,78 +577,120 @@ G11 — System Services Baseline
 
 ---
 
-# Milestone 8 — Notifications, Tray and OSD
+# Milestone 7A — Player Module
 
 ## Objective
 
-Complete the core event-driven desktop feedback layer.
+Validate a module backed by a live event-driven Linux service.
 
 ## Steps
 
-### 8.1 — Resolve notification ownership
-
-Settle whether the shell owns `org.freedesktop.Notifications`.
-
-### 8.2 — Implement notification ingestion
-
-Internal types:
+Create `luna-module-player` consuming `MediaPort`:
 
 ```text
-NotificationId
-Notification
-NotificationAction
-```
-
-### 8.3 — Implement popup lifecycle
-
-Support:
-
-```text
-show
-timeout
-dismiss
-action
-history
-```
-
-### 8.4 — Implement OSD manager
-
-Initial:
-
-```text
-volume
-brightness or microphone
-```
-
-### 8.5 — Integrate system tray
-
-Implement modern StatusNotifierItem support.
-
-### 8.6 — Validate overlay focus rules
-
-OSD must not steal keyboard focus.
-
-## Deliverables
-
-```text
-notification subsystem
-notification UI
-OSD subsystem
-system tray baseline
+active player
+track metadata
+play/pause
+next/previous
+player changes
+no-player state
 ```
 
 ## Completion criteria
 
-External asynchronous events can create transient shell UI safely without focus/input corruption.
+The Player owns no MPRIS connection. It only consumes media state/actions through the application/service boundary.
 
-## Required references
+## Reference
 
-- [decisions.md — D012, D017](./decisions.md)
-- [invariants.md — I008, I010, I012](./invariants.md)
+- [Player module](./modules/player.md)
+
+---
+
+# Milestone 7B — Calendar Module
+
+## Objective
+
+Add a richer content module with local navigation state.
+
+## Steps
+
+Create `luna-module-calendar` with:
+
+```text
+current month
+month navigation
+today highlight
+localized weekday labels
+responsive Notch layout
+```
+
+External account/calendar synchronization is not part of the initial milestone.
+
+## Completion criteria
+
+The module remains self-contained and changes Notch dimensions only through the host layout/sizing path.
+
+## Reference
+
+- [Calendar module](./modules/calendar.md)
+
+---
+
+# Milestone 7C — Resources Module
+
+## Objective
+
+Add the initial Task Manager / Resources experience.
+
+## Steps
+
+Create `luna-module-resources` consuming the resource metrics service:
+
+```text
+CPU
+memory
+swap
+disk
+optional temperature
+bounded history
+controlled sampling cadence
+```
+
+Process-level management may be added later; the MVP is system-level resource visibility.
+
+## Completion criteria
+
+Metrics collection remains outside the GPUI render path and the module does not spawn monitoring commands per render.
+
+## Reference
+
+- [Resources module](./modules/resources.md)
+
+---
+
+# Milestone 8 — Notifications, Tray and OSD
+
+## Objective
+
+Complete event-driven desktop feedback infrastructure.
+
+## Steps
+
+Implement:
+
+```text
+notification ownership decision
+notification ingestion/history/actions
+OSD manager
+StatusNotifierItem tray
+focus-safe overlay behavior
+```
+
+## References
+
 - [gates.md — G12, G13](./gates.md)
-- [ADR-015 — Notification Ownership](./adrs/ADR-015-notification-daemon-ownership.md)
-- [ADR-016 — System Tray](./adrs/ADR-016-system-tray-and-statusnotifieritem.md)
-- [ADR-017 — Focus/Input Coordination](./adrs/ADR-017-focus-keyboard-and-input-region-coordination.md)
+- [ADR-015](./adrs/ADR-015-notification-daemon-ownership.md)
+- [ADR-016](./adrs/ADR-016-system-tray-and-statusnotifieritem.md)
 
 ## Exit gates
 
@@ -821,17 +701,15 @@ G13 — OSD
 
 ---
 
-# Milestone 9 — Visual System and Shared Components
+# Milestone 9 — Visual System and Theme Module
 
 ## Objective
 
-Turn the working shell into a coherent UI system without building an unnecessary generic toolkit.
+Establish the shared design system and expose it through the Theme module.
 
 ## Steps
 
-### 9.1 — Complete design tokens
-
-Add:
+### 9.1 — Complete shared design tokens
 
 ```text
 colors
@@ -843,11 +721,7 @@ motion
 icons
 ```
 
-### 9.2 — Identify repeated patterns
-
-Extract only patterns already repeated across real features.
-
-Likely candidates:
+### 9.2 — Extract proven shared primitives
 
 ```text
 button
@@ -859,46 +733,33 @@ search input
 tooltip
 ```
 
-### 9.3 — Establish asset pipeline
+### 9.3 — Implement `luna-module-theme`
 
-Define SVG handling, icon lookup, image cache and fallback behavior.
+The Theme module controls/edits the shared theme model; it does not create a second independent theme system.
 
-### 9.4 — Standardize motion
-
-Create reusable motion tokens rather than per-feature arbitrary easing.
-
-### 9.5 — Validate at least three features
-
-Required consumers:
+It should integrate with:
 
 ```text
-panel
-notch
-launcher
+theme.toml
+ConfigPort
+config hot reload
+validated theme snapshots
 ```
 
-## Deliverables
+### 9.4 — Validate propagation
 
-```text
-complete shell-theme
-shared primitive set
-asset conventions
-motion tokens
-```
+A valid theme change should update Panel, Notch and all registered modules without restart.
 
 ## Completion criteria
 
-The UI is visually consistent without introducing a second generic toolkit over GPUI.
+The UI is visually consistent and the Theme module changes centralized tokens rather than styling modules independently.
 
-## Required references
+## References
 
-- [decisions.md — D018, D019, D020](./decisions.md)
-- [invariants.md — I020, I021, I022](./invariants.md)
+- [Theme module](./modules/theme.md)
 - [gates.md — G14](./gates.md)
-- [ADR-021 — Design System](./adrs/ADR-021-centralized-design-system.md)
-- [ADR-022 — UI Primitive Policy](./adrs/ADR-022-ui-primitive-extraction-policy.md)
-- [ADR-028 — Icons and Assets](./adrs/ADR-028-icons-and-asset-pipeline.md)
-- [ADR-029 — Text Rendering](./adrs/ADR-029-text-rendering-strategy.md)
+- [ADR-021](./adrs/ADR-021-centralized-design-system.md)
+- [ADR-022](./adrs/ADR-022-ui-primitive-extraction-policy.md)
 
 ## Exit gate
 
@@ -906,66 +767,66 @@ The UI is visually consistent without introducing a second generic toolkit over 
 
 ---
 
-# Milestone 10 — Resilience and Recovery
+# Milestone 10 — Resilience, Config Hot Reload and Settings Module
 
 ## Objective
 
-Make the shell behave like infrastructure rather than a demo.
+Make Luna resilient and expose stable configuration through the Settings module.
 
 ## Steps
 
-### 10.1 — Service failure testing
+### 10.1 — Failure recovery
 
-Simulate:
+Test unavailable PipeWire, NetworkManager, MPRIS, battery and compositor IPC.
 
-```text
-PipeWire unavailable
-NetworkManager unavailable
-MPRIS unavailable
-no battery
-```
+### 10.2 — Config hot reload
 
-### 10.2 — Compositor reconnect behavior
-
-Handle Hyprland IPC interruption where practical.
-
-### 10.3 — Invalid configuration recovery
-
-Invalid values must fall back safely.
-
-### 10.4 — Output churn testing
-
-Repeatedly test connect/disconnect/scale/workspace changes.
-
-### 10.5 — Eliminate recoverable panics
-
-Audit `unwrap()`, `expect()` and `panic!()` in production paths.
-
-### 10.6 — Improve diagnostics
-
-Log failures with subsystem/output/surface context.
-
-## Deliverables
+Use the documented flow:
 
 ```text
-reconnect paths
-graceful unavailable states
-config recovery
-panic audit
-failure test matrix
+watch directory
+→ debounce
+→ parse complete candidate
+→ validate
+→ atomic snapshot replacement
+→ ConfigChanged
 ```
+
+Invalid reloads preserve the last valid snapshot.
+
+### 10.3 — Implement `luna-module-settings`
+
+Settings consumes stable configuration/service capabilities to expose shell preferences.
+
+Initial categories:
+
+```text
+general
+modules
+appearance
+input/keybinds
+compositor-supported options
+```
+
+### 10.4 — Keep boundaries
+
+Settings must not become a direct collection of `hyprctl`, `wpctl`, D-Bus or filesystem calls.
 
 ## Completion criteria
 
-Failure of an optional subsystem does not terminate the usable shell.
+- Settings is an individual crate.
+- configuration writes are typed and validated.
+- invalid config cannot brick the desktop session.
+- optional subsystem failure does not crash Settings or the shell.
 
-## Required references
+## References
 
-- [decisions.md — D022, D024, D025](./decisions.md)
-- [invariants.md — I012, I013, I023, I024, I028, I032, I033](./invariants.md)
+- [Settings module](./modules/settings.md)
+- [Module migration plan](./module-crate-migration.md)
 - [gates.md — G15](./gates.md)
-- [ADR-024 — Error Handling](./adrs/ADR-024-error-handling-and-recovery.md)
-- [ADR-025 — Observability](./adrs/ADR-025-logging-diagnostics-and-observability.md)
+- [ADR-010](./adrs/ADR-010-persistent-configuration-model.md)
+- [ADR-024](./adrs/ADR-024-error-handling-and-recovery.md)
+- [ADR-025](./adrs/ADR-025-logging-diagnostics-and-observability.md)
 
 ## Exit gate
 
@@ -977,66 +838,33 @@ Failure of an optional subsystem does not terminate the usable shell.
 
 ## Objective
 
-Measure the actual shell before deciding whether performance work or architectural changes are required.
+Measure the real shell and module architecture before optimizing.
 
-## Steps
-
-### 11.1 — Build release benchmark profile
-
-Use a repeatable environment.
-
-### 11.2 — Measure idle behavior
-
-Record:
+## Measure
 
 ```text
-RAM
-CPU
-startup time
-```
-
-### 11.3 — Measure interaction behavior
-
-Record:
-
-```text
-notch frame time
+cold startup
+idle RAM
+idle CPU
+Notch frame time
+module switch latency
 launcher filtering latency
-workspace event latency
-volume event latency
+MPRIS update latency
+resource sampling overhead
+theme reload latency
+memory stability after repeated module switching
 ```
-
-### 11.4 — Measure memory stability
-
-Exercise repeated notch open/close, launcher use, workspace switching, notifications and output changes.
-
-### 11.5 — Identify pathological behavior
 
 Only optimize measured bottlenecks.
 
-### 11.6 — Define regression budgets
+## Module-specific requirement
 
-Budgets are based on baseline data, not arbitrary numbers.
+Lazy initialization is allowed and encouraged where it improves startup behavior, but modules remain statically linked unless a future ADR changes the plugin model.
 
-## Deliverables
+## References
 
-```text
-performance report
-baseline metrics
-identified bottlenecks
-regression budget
-```
-
-## Completion criteria
-
-No pathological idle usage, runaway memory growth, event starvation or persistent animation stalls remain.
-
-## Required references
-
-- [decisions.md](./decisions.md)
-- [invariants.md — I039, I040](./invariants.md)
 - [gates.md — G16](./gates.md)
-- [ADR-034 — Performance Budgets](./adrs/ADR-034-performance-budgets-and-regression-policy.md)
+- [ADR-034](./adrs/ADR-034-performance-budgets-and-regression-policy.md)
 
 ## Exit gate
 
@@ -1048,78 +876,104 @@ No pathological idle usage, runaway memory growth, event starvation or persisten
 
 ## Objective
 
-Reach the first daily-usable shell.
+Reach the first daily-usable Luna shell with the initial module architecture proven end-to-end.
 
-## Required features
+## Required shell infrastructure
 
 ```text
 panel
 workspaces
-clock
 notch
-launcher
+multi-monitor
+configuration + hot reload
 audio
-network status
-battery status
+network
+battery
 MPRIS
 notifications
 OSD
 system tray baseline
-multi-monitor
-configuration
 theme system
+```
+
+## Required module crates
+
+```text
+luna-module-clock
+luna-module-launcher
+luna-module-calendar
+luna-module-player
+luna-module-resources
+luna-module-theme
+luna-module-settings
 ```
 
 ## Steps
 
-### 12.1 — Integrate all MVP modules
+### 12.1 — Register all initial modules
 
-Remove development-only fake state.
+`shell-app` composes the final module registry.
 
-### 12.2 — Validate startup dependencies
+### 12.2 — Remove fake module state
 
-Core panel must become usable before optional services finish loading.
+All MVP modules use real application/service/config state where applicable.
 
-### 12.3 — Validate multi-monitor end-to-end
+### 12.3 — Validate Notch transitions
 
-Every MVP feature must behave correctly per output where relevant.
+Exercise transitions between different content sizes:
 
-### 12.4 — Validate fullscreen behavior
+```text
+Clock → Launcher
+Launcher → Calendar
+Calendar → Player
+Player → Resources
+Resources → Theme
+Theme → Settings
+Settings → Idle
+```
 
-Test games, video and fullscreen applications.
+### 12.4 — Validate startup and lazy initialization
 
-### 12.5 — Validate configuration startup
+Core shell becomes usable before noncritical modules/services finish initialization.
 
-Bad config must not brick the session.
+### 12.5 — Validate multi-monitor/fullscreen
 
-### 12.6 — Run invariant review
+Module activation, input regions and dismissal must remain correct across outputs and fullscreen applications.
 
-Use the checklist from `invariants.md`.
+### 12.6 — Validate crate boundaries
+
+Confirm:
+
+```text
+shell-ui-gpui does not depend on concrete module crates
+shell-app performs module registration
+module crates do not own Wayland surfaces
+module crates do not execute raw system commands from widgets
+```
 
 ### 12.7 — Run all prior mandatory gates
-
-No unresolved mandatory gate failure is accepted.
 
 ## Deliverables
 
 ```text
 daily-usable shell MVP
-documented configuration
-stable startup
+all seven initial module crates
+stable Notch module host
+configurable module enablement
 release build
 known limitations document
 ```
 
 ## Completion criteria
 
-The user can run a normal Hyprland session without requiring another bar, launcher or notification frontend for MVP functionality.
+The shell can run a normal Hyprland session with the initial module set and without another launcher or equivalent shell frontend for the covered functionality.
 
-## Required references
+## References
 
-- [decisions.md](./decisions.md)
-- [invariants.md](./invariants.md)
+- [Module architecture](./modules/README.md)
+- [Module migration plan](./module-crate-migration.md)
 - [gates.md — G17](./gates.md)
-- [ADR-035 — Ambxst as Behavioral Reference](./adrs/ADR-035-ambxst-as-behavioral-reference-not-port-target.md)
+- [ADR-035](./adrs/ADR-035-ambxst-as-behavioral-reference-not-port-target.md)
 
 ## Exit gate
 
@@ -1131,71 +985,37 @@ The user can run a normal Hyprland session without requiring another bar, launch
 
 ## Objective
 
-Decide whether GPUI remains the long-term presentation layer using real project evidence.
+Decide whether GPUI remains the long-term presentation layer using evidence from the real module host and shell.
 
-## Steps
-
-### 13.1 — Review platform patch surface
-
-Measure how much custom GPUI/Linux backend code is being maintained.
-
-### 13.2 — Review rendering constraints
-
-Evaluate custom geometry, animations, resizing, text, effects and GPU behavior.
-
-### 13.3 — Review Wayland constraints
-
-Evaluate layer-shell, input regions, output handling, fractional scaling and focus.
-
-### 13.4 — Review developer velocity
-
-Determine whether GPUI is still accelerating or obstructing feature work.
-
-### 13.5 — Compare alternatives using measured needs
-
-Only now compare against:
+## Review
 
 ```text
-SCTK
-wayland-client
-wgpu
-lyon
-dedicated text stack
+platform patch surface
+custom geometry
+Notch/module transitions
+text/effects
+layer-shell/input regions
+fractional scaling
+module developer velocity
+performance
 ```
 
-### 13.6 — Record result
+Possible result:
 
 ```text
-PASS
-→ retain GPUI
-
-CONDITIONAL PASS
-→ retain GPUI + isolated platform extensions
-
-FAIL
-→ begin custom frontend program
+PASS → retain GPUI
+CONDITIONAL PASS → retain GPUI + isolated platform extensions
+FAIL → begin custom frontend program
 ```
 
-## Deliverables
+A frontend replacement may require presentation rewrites in module crates, but must preserve core/services/config contracts.
 
-```text
-GPUI continuation report
-updated ADR-001 if necessary
-custom renderer plan only if justified
-```
+## References
 
-## Completion criteria
-
-Frontend strategy is based on observed constraints rather than preference.
-
-## Required references
-
-- [decisions.md — D002, D003](./decisions.md)
-- [invariants.md — I001, I038, I039](./invariants.md)
 - [gates.md — G18](./gates.md)
-- [ADR-001 — GPUI](./adrs/ADR-001-gpui-as-the-initial-frontend.md)
-- [ADR-003 — Replaceable Frontend](./adrs/ADR-003-frontend-must-remain-replaceable.md)
-- [ADR-033 — Custom Renderer Exit Path](./adrs/ADR-033-future-custom-renderer-exit-path.md)
+- [ADR-001](./adrs/ADR-001-gpui-as-the-initial-frontend.md)
+- [ADR-003](./adrs/ADR-003-frontend-must-remain-replaceable.md)
+- [ADR-033](./adrs/ADR-033-future-custom-renderer-exit-path.md)
 
 ## Exit gate
 
@@ -1207,72 +1027,47 @@ Frontend strategy is based on observed constraints rather than preference.
 
 ## Objective
 
-Expand from a minimal shell into a broader desktop environment only after the core architecture is stable.
+Expand beyond the initial module set only after the core/module architecture is stable.
 
 ## Track 14A — Dock
 
-### Steps
-
 ```text
-application state integration
-active/running indicators
-launch/focus behavior
+application integration
+running indicators
+launch/focus
 auto-hide
-multi-monitor ownership
+multi-monitor
 fullscreen behavior
 ```
 
-### Gate
-
-[G19 — Dock](./gates.md)
-
-### ADR references
-
-- [ADR-005 — Surface Topology](./adrs/ADR-005-shell-surface-topology.md)
-- [ADR-027 — Application Discovery](./adrs/ADR-027-application-discovery-and-launcher-execution.md)
+Gate: [G19](./gates.md)
 
 ## Track 14B — Overview
-
-### Steps
 
 ```text
 window visualization
 workspace visualization
 focus/select window
-workspace selection
 performance with many windows
 ```
 
-### Gate
+Gate: [G20](./gates.md)
 
-[G20 — Overview](./gates.md)
+## Track 14C — Future modules
 
-### ADR references
-
-- [ADR-007 — Hyprland Adapter](./adrs/ADR-007-hyprland-as-a-compositor-adapter.md)
-- [ADR-008 — Compositor Capability Model](./adrs/ADR-008-compositor-port-and-capability-model.md)
-
-## Track 14C — Dashboard and Tools
-
-Possible modules:
+Potential crates may include:
 
 ```text
-system resources
-media
-calendar
-network controls
-bluetooth controls
-power controls
+network
+bluetooth
+power
 clipboard
+notifications
+weather
+AI/assistant
 ```
 
-These must consume existing services rather than create infrastructure clients inside the UI.
-
-### Relevant invariants
-
-- [I034 — Feature modules do not own infrastructure clients](./invariants.md)
-- [I035 — Services are shared](./invariants.md)
-- [I036 — UI features are composable](./invariants.md)
+A new feature should become a module crate when it represents an independently owned Notch feature boundary, not merely because it has multiple files.
 
 ---
 
@@ -1280,52 +1075,26 @@ These must consume existing services rather than create infrastructure clients i
 
 ## Objective
 
-Implement a secure session lock only after the shell core is mature.
+Implement a secure Wayland session lock after shell core maturity.
 
-## Steps
-
-### 15.1 — Validate session-lock protocol
-
-Use the appropriate Wayland session-lock mechanism.
-
-### 15.2 — Define authentication boundary
-
-Determine how authentication is performed and isolated.
-
-### 15.3 — Cover every output
-
-Including outputs attached while locked.
-
-### 15.4 — Validate exclusive input
-
-No bypass through ordinary shell surfaces.
-
-### 15.5 — Validate crash behavior
-
-Understand compositor/session behavior if lock process dies.
-
-### 15.6 — Security testing
-
-Attempt explicit bypass scenarios.
-
-## Deliverables
+Validate:
 
 ```text
-security architecture
-session-lock implementation
-authentication integration
-failure behavior documentation
+session-lock protocol
+authentication boundary
+all outputs
+exclusive input
+output hotplug while locked
+crash behavior
+bypass scenarios
 ```
 
-## Completion criteria
+The lockscreen is security infrastructure, not a normal Notch module.
 
-Lockscreen behavior has been validated as a security mechanism rather than merely a visual overlay.
+## References
 
-## Required references
-
-- [invariants.md — I031](./invariants.md)
 - [gates.md — G21](./gates.md)
-- [ADR-030 — Lockscreen Security](./adrs/ADR-030-lockscreen-security-architecture.md)
+- [ADR-030](./adrs/ADR-030-lockscreen-security-architecture.md)
 
 ## Exit gate
 
@@ -1337,55 +1106,27 @@ Lockscreen behavior has been validated as a security mechanism rather than merel
 
 ## Objective
 
-Prove that frontend replaceability is real rather than theoretical.
+Prove frontend and module composition boundaries are real rather than theoretical.
 
 ## Steps
 
-### 16.1 — Run core without GPUI
+Validate core/services without GPUI and review dependency graphs for accidental coupling.
 
-Create either:
-
-```text
-headless executable
-or
-minimal alternate frontend
-```
-
-### 16.2 — Consume ShellState
-
-Verify an alternate consumer can observe application state.
-
-### 16.3 — Issue application commands
-
-Verify commands can execute without GPUI.
-
-### 16.4 — Run compositor/services independently
-
-Validate Hyprland adapter, Linux services and configuration without GPUI.
-
-### 16.5 — Review dependency graph
-
-Ensure no accidental GPUI dependency entered the core during MVP development.
-
-## Deliverables
+Additionally prove that module registration is owned by composition rather than the Notch host:
 
 ```text
-headless/alternate consumer
-dependency review
-frontend replacement validation report
+remove one module dependency from shell-app
+→ host still compiles
+→ remaining shell/module host architecture remains valid
 ```
 
-## Completion criteria
+A headless or alternate consumer must be able to observe core state and issue application commands without loading GPUI.
 
-The core and system adapters operate independently from GPUI.
+## References
 
-## Required references
-
-- [decisions.md — D003](./decisions.md)
-- [invariants.md — I001, I017, I018, I022](./invariants.md)
 - [gates.md — G22](./gates.md)
-- [ADR-003 — Replaceable Frontend](./adrs/ADR-003-frontend-must-remain-replaceable.md)
-- [ADR-033 — Custom Renderer Exit Path](./adrs/ADR-033-future-custom-renderer-exit-path.md)
+- [ADR-003](./adrs/ADR-003-frontend-must-remain-replaceable.md)
+- [ADR-033](./adrs/ADR-033-future-custom-renderer-exit-path.md)
 
 ## Exit gate
 
@@ -1400,13 +1141,10 @@ The core and system adapters operate independently from GPUI.
 Requires:
 
 ```text
-Milestone 0
-Milestone 1
-Milestone 2
-Milestone 3
+M0–M5
 ```
 
-At this point the project has proven:
+Proves:
 
 ```text
 GPUI
@@ -1414,14 +1152,21 @@ Wayland
 layer-shell
 multi-monitor
 Hyprland integration
+Notch
+module host contract
 ```
 
 ## Alpha
 
-Requires:
+Requires at minimum:
 
 ```text
-Milestones 0–11
+M0–M9
+Clock
+Launcher
+Player
+Calendar
+Resources
 ```
 
 Expected state:
@@ -1429,7 +1174,8 @@ Expected state:
 ```text
 functional developer shell
 real services
-real panel/notch/launcher
+working module registry
+several real module crates
 known UX rough edges acceptable
 ```
 
@@ -1438,14 +1184,9 @@ known UX rough edges acceptable
 Requires:
 
 ```text
-Milestones 0–12
+M0–M12
+all seven initial modules
 G00–G17
-```
-
-Expected state:
-
-```text
-daily-usable core shell
 ```
 
 ## Beta
@@ -1454,11 +1195,8 @@ Requires:
 
 ```text
 MVP
-+
-Milestone 13
-+
+M13 GPUI continuation review
 resilience hardening
-+
 configuration stabilization
 ```
 
@@ -1471,9 +1209,10 @@ no critical focus/input bugs
 no shell-crashing optional service failures
 multi-monitor validated
 fractional scaling validated
+module registration boundaries preserved
 performance regression process established
 security-sensitive features gated separately
-architecture docs match implementation
+architecture docs matching implementation
 ```
 
 ---
@@ -1481,39 +1220,44 @@ architecture docs match implementation
 # Critical Path
 
 ```text
-M0  Repository Foundation
+M0   Repository + module crate skeletons
  ↓
-M1  GPUI + Layer Shell
+M1   GPUI + Layer Shell
  ↓
-M2  Surface Architecture + Multi-Monitor
+M2   Surface Architecture + Multi-Monitor
  ↓
-M3  Hyprland Adapter
+M3   Hyprland Adapter
  ↓
-M4  Panel
+M4   Panel
  ↓
-M5  Notch
+M5   Notch + Module Host
  ↓
-M6  Launcher
+M5A  Clock
  ↓
-M7  Linux Services
+M6   Launcher
  ↓
-M8  Notifications / Tray / OSD
+M7   Linux Services
+ ├──→ M7A Player
+ ├──→ M7B Calendar
+ └──→ M7C Resources
  ↓
-M9  Visual System
+M8   Notifications / Tray / OSD
  ↓
-M10 Resilience
+M9   Visual System + Theme
  ↓
-M11 Performance
+M10  Resilience + Settings
  ↓
-M12 MVP
+M11  Performance
  ↓
-M13 GPUI Continuation Review
+M12  MVP / all initial modules
+ ↓
+M13  GPUI Continuation Review
 ```
 
 Post-MVP:
 
 ```text
-M14 Desktop Features
+M14 Desktop Features / future module crates
 M15 Lockscreen
 M16 Architecture Portability Proof
 ```
@@ -1522,25 +1266,32 @@ M16 Architecture Portability Proof
 
 # Project Rule
 
-Milestones organize **delivery**.
+Milestones organize delivery.
 
-[decisions.md](./decisions.md) defines what the architecture currently chooses.
+[decisions.md](./decisions.md) defines architectural decisions.
 
-[invariants.md](./invariants.md) defines what implementations are not allowed to violate.
+[invariants.md](./invariants.md) defines what implementations may not violate.
 
-[gates.md](./gates.md) defines the evidence required before the project advances.
+[gates.md](./gates.md) defines evidence required before progression.
 
-If a milestone implementation conflicts with one of those documents:
+[modules/README.md](./modules/README.md) defines the module boundary.
+
+[module-crate-migration.md](./module-crate-migration.md) defines the migration required to reach that boundary.
+
+If implementation conflicts with these documents:
 
 ```text
 invariant violation
-    → implementation is wrong
+→ implementation is wrong
 
 gate failure
-    → milestone is not complete
+→ milestone is not complete
+
+module boundary violation
+→ feature must be moved back behind the correct crate/host/service contract
 
 decision contradicted by evidence
-    → update/supersede the decision or ADR
+→ update or supersede the decision/ADR
 ```
 
-Do not change the architecture silently inside feature code.
+Do not change module ownership or dependency direction silently inside feature code.
