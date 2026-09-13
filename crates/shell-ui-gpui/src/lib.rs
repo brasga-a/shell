@@ -23,8 +23,8 @@ use gpui::{
 use gpui_platform::application;
 use shell_config::{ConfigEvent, ConfigWatcher};
 use shell_core::{
-    BarPosition, CompositorEvent, CompositorSnapshot, CompositorStateStore, KeyboardModeConfig,
-    NotchConfig, OutputId, PlatformError, ShellCommand, ShellConfig,
+    AppUsageMetrics, BarPosition, CompositorEvent, CompositorSnapshot, CompositorStateStore,
+    KeyboardModeConfig, NotchConfig, OutputId, PlatformError, ShellCommand, ShellConfig,
 };
 use shell_platform::{Anchors, ShellLayer, SurfaceSpec};
 use shell_theme::DesignTokens;
@@ -107,6 +107,7 @@ impl GpuiFrontend {
         &self,
         initial_snapshot: Option<CompositorSnapshot>,
         compositor_events: Option<mpsc::Receiver<CompositorEvent>>,
+        usage_metrics: Option<mpsc::Receiver<AppUsageMetrics>>,
         commands: mpsc::Sender<ShellCommand>,
         state_store: CompositorStateStore,
         watcher: Option<ConfigWatcher>,
@@ -134,6 +135,8 @@ impl GpuiFrontend {
         });
         let frontend_for_reload = self.clone();
         let initial_snapshot = initial_snapshot.unwrap_or_default();
+        let debug_tokens = settings.tokens.clone();
+        let debug_state_store = state_store.clone();
 
         let run_result = catch_gpui_run(|| {
             application().run(move |cx: &mut App| {
@@ -255,6 +258,40 @@ impl GpuiFrontend {
                     *startup_error_for_app.borrow_mut() = Some(error.to_string());
                     cx.quit();
                     return;
+                }
+
+                if let Some(receiver) = usage_metrics {
+                    let result = cx.open_window(
+                        WindowOptions {
+                            titlebar: None,
+                            window_bounds: Some(WindowBounds::Windowed(Bounds {
+                                origin: point(px(0.), px(0.)),
+                                size: size(px(280.), px(154.)),
+                            })),
+                            window_background: WindowBackgroundAppearance::Transparent,
+                            app_id: Some("linux-shell.debug-overlay".to_string()),
+                            kind: WindowKind::LayerShell(debug_layer_shell_options()),
+                            ..Default::default()
+                        },
+                        |window, cx| {
+                            // The overlay is visual-only. An empty Wayland
+                            // input region lets clicks pass through it.
+                            window.set_input_region(Some(&[]));
+                            cx.new(|cx| {
+                                DebugMetricsView::new(
+                                    receiver,
+                                    debug_tokens,
+                                    debug_state_store,
+                                    cx,
+                                )
+                            })
+                        },
+                    );
+                    if let Err(error) = result {
+                        *startup_error_for_app.borrow_mut() = Some(error.to_string());
+                        cx.quit();
+                        return;
+                    }
                 }
 
                 cx.activate(true);
@@ -479,6 +516,138 @@ fn layer_shell_options(spec: &SurfaceSpec, namespace: &str) -> LayerShellOptions
         },
         ..Default::default()
     }
+}
+
+fn debug_layer_shell_options() -> LayerShellOptions {
+    LayerShellOptions {
+        namespace: "linux-shell-debug-overlay".to_string(),
+        layer: Layer::Overlay,
+        anchor: Anchor::BOTTOM | Anchor::RIGHT,
+        margin: Some((px(0.), px(16.), px(16.), px(0.))),
+        keyboard_interactivity: KeyboardInteractivity::None,
+        ..Default::default()
+    }
+}
+
+struct DebugMetricsView {
+    metrics: AppUsageMetrics,
+    tokens: DesignTokens,
+    outputs: usize,
+    workspaces: usize,
+}
+
+impl DebugMetricsView {
+    fn new(
+        receiver: mpsc::Receiver<AppUsageMetrics>,
+        tokens: DesignTokens,
+        state_store: CompositorStateStore,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        let task = cx.spawn(async move |this, cx| {
+            loop {
+                while let Ok(metrics) = receiver.try_recv() {
+                    let (outputs, workspaces) = state_store
+                        .snapshot()
+                        .map(|snapshot| (snapshot.monitors.len(), snapshot.workspaces.len()))
+                        .unwrap_or_default();
+                    if this
+                        .update(cx, |view: &mut DebugMetricsView, cx| {
+                            view.metrics = metrics;
+                            view.outputs = outputs;
+                            view.workspaces = workspaces;
+                            cx.notify();
+                        })
+                        .is_err()
+                    {
+                        return;
+                    }
+                }
+                cx.background_executor()
+                    .timer(Duration::from_millis(250))
+                    .await;
+            }
+        });
+        task.detach();
+
+        Self {
+            metrics: AppUsageMetrics::default(),
+            tokens,
+            outputs: 0,
+            workspaces: 0,
+        }
+    }
+}
+
+impl Render for DebugMetricsView {
+    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+        let tokens = self.tokens.clone();
+        let cpu = self
+            .metrics
+            .cpu_percent
+            .map_or_else(|| "n/a".to_string(), |value| format!("{value:.1}%"));
+        let gpu = self.metrics.gpu_percent.map_or_else(
+            || "n/a".to_string(),
+            |value| {
+                if self.metrics.gpu_is_system {
+                    format!("{value:.1}% (sys)")
+                } else {
+                    format!("{value:.1}%")
+                }
+            },
+        );
+
+        div()
+            .id("shell-debug-overlay-root")
+            .size_full()
+            .flex()
+            .justify_end()
+            .items_end()
+            .p(px(tokens.spacing.md as f32))
+            .text_color(rgb(tokens.colors.foreground))
+            .child(
+                div()
+                    .p(px(tokens.spacing.md as f32))
+                    .rounded(px(tokens.radius.md as f32))
+                    .bg(rgba(tokens.colors.background_overlay))
+                    .text_size(px(tokens.typography.label_size as f32))
+                    .flex()
+                    .flex_col()
+                    .gap(px(tokens.spacing.sm as f32))
+                    .child(
+                        div()
+                            .text_size(px(tokens.typography.title_size as f32))
+                            .font_weight(FontWeight::BOLD)
+                            .child("DEBUG"),
+                    )
+                    .child(format!("CPU  {cpu}"))
+                    .child(format!("RAM  {}", format_bytes(self.metrics.ram_bytes)))
+                    .child(format!("GPU  {gpu}"))
+                    .child(format!("THR  {}", self.metrics.thread_count))
+                    .child(format!(
+                        "UP   {}",
+                        format_uptime(self.metrics.uptime_seconds)
+                    ))
+                    .child(format!("OUT  {}   WS  {}", self.outputs, self.workspaces)),
+            )
+    }
+}
+
+fn format_bytes(bytes: u64) -> String {
+    const MIB: f64 = 1024.0 * 1024.0;
+    const GIB: f64 = MIB * 1024.0;
+    let bytes = bytes as f64;
+    if bytes >= GIB {
+        format!("{:.1} GiB", bytes / GIB)
+    } else {
+        format!("{:.1} MiB", bytes / MIB)
+    }
+}
+
+fn format_uptime(seconds: u64) -> String {
+    let hours = seconds / 3600;
+    let minutes = (seconds / 60) % 60;
+    let seconds = seconds % 60;
+    format!("{hours:02}:{minutes:02}:{seconds:02}")
 }
 
 struct PanelView {

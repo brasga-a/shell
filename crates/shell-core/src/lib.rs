@@ -8,6 +8,7 @@ mod commands;
 mod config;
 mod domain;
 mod error;
+mod metrics;
 mod ports;
 mod state;
 
@@ -24,6 +25,7 @@ pub use domain::{
 };
 pub use domain::{OutputId, SurfaceId, WindowId, WorkspaceId};
 pub use error::{CompositorError, ConfigError, PlatformError};
+pub use metrics::AppUsageMetrics;
 pub use ports::{
     CompositorCapabilities, CompositorEvent, CompositorEventKind, CompositorEventStream,
     CompositorPort, ConfigPort,

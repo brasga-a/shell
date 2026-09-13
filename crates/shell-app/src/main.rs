@@ -1,10 +1,10 @@
-use std::{env, sync::mpsc, thread};
+use std::{env, sync::mpsc, thread, time::Duration};
 
 use shell_app::{ShellApplication, initialize_logging};
 use shell_config::{ConfigLoader, ConfigManager};
-use shell_core::{CompositorEvent, CompositorEventStream};
+use shell_core::{AppUsageMetrics, CompositorEvent, CompositorEventStream};
 use shell_hyprland::HyprlandCompositor;
-use shell_linux::LinuxServices;
+use shell_linux::{LinuxServices, UsageSampler};
 use shell_platform::{Anchors, ShellLayer, SurfaceSpec};
 use shell_theme::DesignTokens;
 use shell_ui_gpui::GpuiFrontend;
@@ -74,6 +74,7 @@ fn main() {
                 None
             }
         };
+        let usage_metrics = Some(spawn_usage_forwarder());
         let watcher = match config_manager.watch() {
             Ok(watcher) => Some(watcher),
             Err(error) => {
@@ -84,6 +85,7 @@ fn main() {
         let result = frontend.run_panel_app(
             application.compositor_state(),
             compositor_events,
+            usage_metrics,
             application.command_bus().sender(),
             application.state_store(),
             watcher,
@@ -118,6 +120,22 @@ fn spawn_event_forwarder(
                         break;
                     }
                 }
+            }
+        });
+    receiver
+}
+
+fn spawn_usage_forwarder() -> mpsc::Receiver<AppUsageMetrics> {
+    let (sender, receiver) = mpsc::channel();
+    let _ = thread::Builder::new()
+        .name("shell-usage-sampler".to_owned())
+        .spawn(move || {
+            let mut sampler = UsageSampler::new();
+            loop {
+                if sender.send(sampler.sample()).is_err() {
+                    break;
+                }
+                thread::sleep(Duration::from_secs(1));
             }
         });
     receiver
