@@ -229,6 +229,7 @@ impl Default for BarConfig {
 #[serde(default)]
 pub struct NotchConfig {
     pub enabled: bool,
+    pub modules: Vec<String>,
     pub collapsed_width: u32,
     pub width: u32,
     pub collapsed_height: u32,
@@ -243,6 +244,7 @@ impl Default for NotchConfig {
     fn default() -> Self {
         Self {
             enabled: true,
+            modules: vec!["clock".to_string(), "network".to_string()],
             collapsed_width: 144,
             width: 520,
             collapsed_height: 32,

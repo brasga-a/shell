@@ -660,6 +660,8 @@ impl BarConfigFile {
 struct NotchConfigFile {
     #[serde(default = "default_true")]
     enabled: bool,
+    #[serde(default = "default_notch_modules")]
+    modules: Vec<String>,
     #[serde(default = "default_notch_collapsed_width")]
     collapsed_width: u32,
     #[serde(default = "default_notch_width")]
@@ -683,6 +685,7 @@ impl Default for NotchConfigFile {
         let config = NotchConfig::default();
         Self {
             enabled: config.enabled,
+            modules: config.modules.clone(),
             collapsed_width: config.collapsed_width,
             width: config.width,
             collapsed_height: config.collapsed_height,
@@ -701,6 +704,10 @@ fn default_notch_width() -> u32 {
 
 fn default_notch_collapsed_width() -> u32 {
     NotchConfig::default().collapsed_width
+}
+
+fn default_notch_modules() -> Vec<String> {
+    NotchConfig::default().modules
 }
 
 fn default_notch_collapsed_height() -> u32 {
@@ -724,6 +731,11 @@ impl NotchConfigFile {
         let defaults = NotchConfig::default();
         NotchConfig {
             enabled: self.enabled,
+            modules: if self.modules.is_empty() {
+                defaults.modules.clone()
+            } else {
+                self.modules
+            },
             collapsed_width: if self.collapsed_width == 0 {
                 defaults.collapsed_width
             } else {
@@ -762,6 +774,7 @@ impl NotchConfigFile {
     fn from_config(config: &ShellConfig) -> Self {
         Self {
             enabled: config.notch.enabled,
+            modules: config.notch.modules.clone(),
             collapsed_width: config.notch.collapsed_width,
             width: config.notch.width,
             collapsed_height: config.notch.collapsed_height,

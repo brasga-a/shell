@@ -236,6 +236,7 @@ modules_right = [
 ```toml
 enabled = true
 
+modules = ["clock", "network"]
 collapsed_width = 144
 width = 520
 collapsed_height = 32

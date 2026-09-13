@@ -44,7 +44,6 @@ struct FrontendSettings {
     tokens: DesignTokens,
     width: f32,
     height: f32,
-    panel_height: f32,
     notch: NotchConfig,
 }
 
@@ -55,7 +54,6 @@ impl Default for FrontendSettings {
             tokens: DesignTokens::default(),
             width: notch.width as f32,
             height: notch.expanded_height as f32,
-            panel_height: shell_core::BarConfig::default().height as f32,
             notch,
         }
     }
@@ -67,7 +65,6 @@ impl FrontendSettings {
             tokens: DesignTokens::from_config(&config.theme),
             width: config.notch.width as f32,
             height: config.notch.expanded_height as f32,
-            panel_height: config.bar.height as f32,
             notch: config.notch.clone(),
         }
     }
@@ -119,7 +116,6 @@ impl GpuiFrontend {
     ) -> Result<(), PlatformError> {
         let startup_error = Rc::new(RefCell::new(None));
         let startup_error_for_app = startup_error.clone();
-        let surface_spec = self.surface_spec.borrow().clone();
         let settings = self.settings.borrow().clone();
         let config_events = watcher.map(|watcher| {
             let (sender, receiver) = mpsc::channel();
@@ -144,128 +140,12 @@ impl GpuiFrontend {
         let debug_state_store = state_store.clone();
         let notch_config = settings.notch.clone();
         let notch_tokens = settings.tokens.clone();
+        let configured_output_size = focused_output_size(&initial_snapshot);
 
         let run_result = catch_gpui_run(|| {
             application().run(move |cx: &mut App| {
                 cx.bind_keys([KeyBinding::new("ctrl-q", Quit, None)]);
                 cx.on_action(|_: &Quit, cx| cx.quit());
-
-                let result = cx.open_window(
-                    WindowOptions {
-                        titlebar: None,
-                        window_bounds: Some(WindowBounds::Windowed(Bounds {
-                            origin: point(px(0.), px(0.)),
-                            size: size(px(0.), px(settings.panel_height)),
-                        })),
-                        window_background: WindowBackgroundAppearance::Transparent,
-                        app_id: Some("linux-shell.panel".to_string()),
-                        kind: WindowKind::LayerShell(layer_shell_options(
-                            &surface_spec,
-                            "linux-shell-panel",
-                        )),
-                        ..Default::default()
-                    },
-                    |_window, cx| {
-                        let config_events = config_events;
-                        let compositor_events = compositor_events;
-                        let frontend_for_reload = frontend_for_reload.clone();
-                        let state_store = state_store.clone();
-                        cx.new(|cx| {
-                            let view = PanelView::new(
-                                initial_snapshot,
-                                settings.tokens.clone(),
-                                commands,
-                                cx,
-                            );
-
-                            if let Some(receiver) = config_events {
-                                let task = cx.spawn(async move |this, cx| {
-                                    loop {
-                                        while let Ok(event) = receiver.try_recv() {
-                                            match event {
-                                                ConfigEvent::Changed(change) => {
-                                                    frontend_for_reload.prepare(&change.snapshot);
-                                                    let tokens = DesignTokens::from_config(
-                                                        &change.snapshot.theme,
-                                                    );
-                                                    let status = format!(
-                                                        "config reload: applied {} file(s) in {} ms",
-                                                        change.paths.len(),
-                                                        change.duration_ms
-                                                    );
-                                                    if this
-                                                        .update(cx, |view: &mut PanelView, cx| {
-                                                            view.tokens = tokens;
-                                                            view.status = status.into();
-                                                            cx.notify();
-                                                        })
-                                                        .is_err()
-                                                    {
-                                                        return;
-                                                    }
-                                                }
-                                                ConfigEvent::Rejected(rejected) => {
-                                                    let status = format!(
-                                                        "config reload: rejected {} file(s): {}",
-                                                        rejected.paths.len(),
-                                                        rejected.error
-                                                    );
-                                                    if this
-                                                        .update(cx, |view: &mut PanelView, cx| {
-                                                            view.status = status.into();
-                                                            cx.notify();
-                                                        })
-                                                        .is_err()
-                                                    {
-                                                        return;
-                                                    }
-                                                }
-                                            }
-                                        }
-                                        cx.background_executor()
-                                            .timer(Duration::from_millis(100))
-                                            .await;
-                                    }
-                                });
-                                task.detach();
-                            }
-
-                            if let Some(receiver) = compositor_events {
-                                let state_store = state_store.clone();
-                                let task = cx.spawn(async move |this, cx| {
-                                    loop {
-                                        while let Ok(event) = receiver.try_recv() {
-                                            let snapshot = event.snapshot;
-                                            state_store.replace(snapshot.clone());
-                                            if this
-                                                .update(cx, |view: &mut PanelView, cx| {
-                                                    view.snapshot = snapshot;
-                                                    view.status = "compositor: event-driven".into();
-                                                    cx.notify();
-                                                })
-                                                .is_err()
-                                            {
-                                                return;
-                                            }
-                                        }
-                                        cx.background_executor()
-                                            .timer(Duration::from_millis(50))
-                                            .await;
-                                    }
-                                });
-                                task.detach();
-                            }
-
-                            view
-                        })
-                    },
-                );
-
-                if let Err(error) = result {
-                    *startup_error_for_app.borrow_mut() = Some(error.to_string());
-                    cx.quit();
-                    return;
-                }
 
                 if let Some(receiver) = usage_metrics {
                     let result = cx.open_window(
@@ -285,12 +165,7 @@ impl GpuiFrontend {
                             // input region lets clicks pass through it.
                             window.set_input_region(Some(&[]));
                             cx.new(|cx| {
-                                DebugMetricsView::new(
-                                    receiver,
-                                    debug_tokens,
-                                    debug_state_store,
-                                    cx,
-                                )
+                                DebugMetricsView::new(receiver, debug_tokens, debug_state_store, cx)
                             })
                         },
                     );
@@ -302,20 +177,115 @@ impl GpuiFrontend {
                 }
 
                 if notch_config.enabled {
+                    let output_size = configured_output_size
+                        .map(|(width, height)| size(px(width), px(height)))
+                        .or_else(|| cx.primary_display().map(|display| display.bounds().size))
+                        .unwrap_or_else(|| size(px(settings.width), px(settings.height)));
                     let result = cx.open_window(
                         WindowOptions {
                             titlebar: None,
                             window_bounds: Some(WindowBounds::Windowed(Bounds {
                                 origin: point(px(0.), px(0.)),
-                                size: size(px(0.), px(0.)),
+                                // GPUI needs an explicit logical size even
+                                // though all anchors make the compositor span
+                                // this layer across the output.
+                                size: output_size,
                             })),
                             window_background: WindowBackgroundAppearance::Transparent,
                             app_id: Some("linux-shell.notch".to_string()),
-                            kind: WindowKind::LayerShell(notch_layer_shell_options()),
+                            kind: WindowKind::LayerShell(notch_layer_shell_options(
+                                notch_config.collapsed_height,
+                            )),
                             ..Default::default()
                         },
                         |_window, cx| {
-                            cx.new(|cx| NotchView::new(notch_config, notch_tokens, cx))
+                            let config_events = config_events;
+                            let compositor_events = compositor_events;
+                            let frontend_for_reload = frontend_for_reload.clone();
+                            let state_store = state_store.clone();
+                            cx.new(|cx| {
+                                let view = NotchView::new(
+                                    notch_config,
+                                    notch_tokens,
+                                    initial_snapshot,
+                                    commands,
+                                    cx,
+                                );
+
+                                if let Some(receiver) = config_events {
+                                    let task = cx.spawn(async move |this, cx| {
+                                        loop {
+                                            while let Ok(event) = receiver.try_recv() {
+                                                match event {
+                                                    ConfigEvent::Changed(change) => {
+                                                        frontend_for_reload
+                                                            .prepare(&change.snapshot);
+                                                        let tokens = DesignTokens::from_config(
+                                                            &change.snapshot.theme,
+                                                        );
+                                                        if this
+                                                            .update(
+                                                                cx,
+                                                                |view: &mut NotchView, cx| {
+                                                                    view.apply_config(
+                                                                        change
+                                                                            .snapshot
+                                                                            .notch
+                                                                            .clone(),
+                                                                        tokens,
+                                                                        cx,
+                                                                    );
+                                                                },
+                                                            )
+                                                            .is_err()
+                                                        {
+                                                            return;
+                                                        }
+                                                    }
+                                                    ConfigEvent::Rejected(rejected) => {
+                                                        tracing::warn!(
+                                                            paths = rejected.paths.len(),
+                                                            error = %rejected.error,
+                                                            "notch configuration reload rejected"
+                                                        );
+                                                    }
+                                                }
+                                            }
+                                            cx.background_executor()
+                                                .timer(Duration::from_millis(100))
+                                                .await;
+                                        }
+                                    });
+                                    task.detach();
+                                }
+
+                                if let Some(receiver) = compositor_events {
+                                    let state_store = state_store.clone();
+                                    let task = cx.spawn(async move |this, cx| {
+                                        loop {
+                                            while let Ok(event) = receiver.try_recv() {
+                                                let snapshot = event.snapshot;
+                                                state_store.replace(snapshot.clone());
+                                                if this
+                                                    .update(cx, |view: &mut NotchView, cx| {
+                                                        view.snapshot = snapshot;
+                                                        cx.notify();
+                                                    })
+                                                    .is_err()
+                                                {
+                                                    return;
+                                                }
+                                            }
+                                            cx.background_executor()
+                                                .timer(Duration::from_millis(50))
+                                                .await;
+                                        }
+                                    });
+                                    task.detach();
+                                }
+
+                                view
+                            })
                         },
                     );
                     if let Err(error) = result {
@@ -560,11 +530,13 @@ fn debug_layer_shell_options() -> LayerShellOptions {
     }
 }
 
-fn notch_layer_shell_options() -> LayerShellOptions {
+fn notch_layer_shell_options(reserved_height: u32) -> LayerShellOptions {
     LayerShellOptions {
         namespace: "linux-shell-notch".to_string(),
         layer: Layer::Top,
         anchor: Anchor::TOP | Anchor::BOTTOM | Anchor::LEFT | Anchor::RIGHT,
+        exclusive_zone: Some(px(reserved_height as f32)),
+        exclusive_edge: Some(Anchor::TOP),
         keyboard_interactivity: KeyboardInteractivity::OnDemand,
         ..Default::default()
     }
@@ -576,15 +548,24 @@ struct NotchView {
     state: NotchState,
     clock: SharedString,
     query: String,
+    snapshot: CompositorSnapshot,
+    commands: mpsc::Sender<ShellCommand>,
     focus_manager: FocusManager,
     focus_handle: FocusHandle,
     animation: NotchAnimation,
     animation_task_running: bool,
+    geometry_reported: bool,
 }
 
 impl NotchView {
-    fn new(config: NotchConfig, tokens: DesignTokens, cx: &mut Context<Self>) -> Self {
-        let initial_geometry = NotchGeometry::for_state(&config, NotchState::Idle);
+    fn new(
+        config: NotchConfig,
+        tokens: DesignTokens,
+        snapshot: CompositorSnapshot,
+        commands: mpsc::Sender<ShellCommand>,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        let initial_geometry = notch_target_geometry(&config, NotchState::Idle);
         let task = cx.spawn(async move |this, cx| {
             loop {
                 if this
@@ -607,11 +588,57 @@ impl NotchView {
             state: NotchState::Idle,
             clock: local_clock(),
             query: String::new(),
+            snapshot,
+            commands,
             focus_manager: FocusManager::default(),
             focus_handle: cx.focus_handle(),
             animation: NotchAnimation::new(initial_geometry),
             animation_task_running: false,
+            geometry_reported: false,
         }
+    }
+
+    fn target_geometry(&self, state: NotchState) -> NotchGeometry {
+        notch_target_geometry(&self.config, state)
+    }
+}
+
+fn notch_target_geometry(config: &NotchConfig, state: NotchState) -> NotchGeometry {
+    let geometry = NotchGeometry::for_state(config, state);
+    if state == NotchState::Launcher {
+        return geometry;
+    }
+
+    let module_count = config
+        .modules
+        .iter()
+        .filter(|module| is_known_module(module))
+        .count();
+    let calculated_width = 32.0 + module_count as f32 * 44.0;
+    NotchGeometry::new(
+        calculated_width
+            .max(geometry.width)
+            .min(config.width as f32),
+        geometry.height,
+        geometry.radius,
+        geometry.corner_size,
+        geometry.edge,
+    )
+}
+
+impl NotchView {
+    fn apply_config(&mut self, config: NotchConfig, tokens: DesignTokens, cx: &mut Context<Self>) {
+        self.config = config;
+        self.tokens = tokens;
+        let target = self.target_geometry(self.state);
+        let duration_ms = if self.config.animation.enabled {
+            self.config.animation.duration_ms
+        } else {
+            0
+        };
+        self.animation.retarget(target, duration_ms);
+        self.start_animation_task(cx);
+        cx.notify();
     }
 
     fn set_state(&mut self, state: NotchState, window: &mut Window, cx: &mut Context<Self>) {
@@ -632,7 +659,7 @@ impl NotchView {
             }
         }
 
-        let target = NotchGeometry::for_state(&self.config, state);
+        let target = self.target_geometry(state);
         let duration_ms = if self.config.animation.enabled {
             self.config.animation.duration_ms
         } else {
@@ -677,8 +704,15 @@ impl NotchView {
     }
 
     fn surface_size(window: &Window) -> (f32, f32) {
-        let viewport = window.viewport_size();
-        (f32::from(viewport.width), f32::from(viewport.height))
+        let bounds = window.bounds();
+        let width = f32::from(bounds.size.width);
+        let height = f32::from(bounds.size.height);
+        if width > 0.0 && height > 0.0 {
+            (width, height)
+        } else {
+            let viewport = window.viewport_size();
+            (f32::from(viewport.width), f32::from(viewport.height))
+        }
     }
 }
 
@@ -693,6 +727,18 @@ impl Render for NotchView {
         let (surface_width, surface_height) = Self::surface_size(window);
         let geometry = self.animation.current();
         let notch_bounds = geometry.bounds(surface_width, surface_height);
+        if !self.geometry_reported {
+            tracing::info!(
+                surface_width,
+                surface_height,
+                notch_x = notch_bounds.origin.x,
+                notch_y = notch_bounds.origin.y,
+                notch_width = notch_bounds.size.width,
+                notch_height = notch_bounds.size.height,
+                "notch render geometry initialized"
+            );
+            self.geometry_reported = true;
+        }
         let input_rects = if self.focus_manager.owns_modal_pointer() {
             vec![Bounds {
                 origin: point(px(0.), px(0.)),
@@ -717,10 +763,14 @@ impl Render for NotchView {
         let paint_tokens = tokens.clone();
         let clock = self.clock.clone();
         let query = self.query.clone();
+        let modules = self.config.modules.clone();
+        let snapshot = self.snapshot.clone();
+        let commands = self.commands.clone();
 
         div()
             .id("shell-notch-root")
             .track_focus(&focus_handle)
+            .relative()
             .size_full()
             .on_mouse_down(
                 gpui::MouseButton::Left,
@@ -757,26 +807,29 @@ impl Render for NotchView {
                 }
             }))
             .child(
+                canvas(
+                    move |_, _, _| {
+                        build_notch_path(
+                            geometry,
+                            point(px(notch_bounds.origin.x), px(notch_bounds.origin.y)),
+                        )
+                    },
+                    move |_, path: Option<Path<Pixels>>, window, _| {
+                        if let Some(path) = path {
+                            window.paint_path(path, rgba(paint_tokens.colors.background_overlay));
+                        }
+                    },
+                )
+                .absolute()
+                .size_full(),
+            )
+            .child(
                 div()
                     .absolute()
                     .left(px(notch_bounds.origin.x))
                     .top(px(notch_bounds.origin.y))
                     .w(px(notch_bounds.size.width))
                     .h(px(notch_bounds.size.height))
-                    .child(
-                        canvas(
-                            move |_, _, _| build_notch_path(geometry),
-                            move |_, path: Option<Path<Pixels>>, window, _| {
-                                if let Some(path) = path {
-                                    window.paint_path(
-                                        path,
-                                        rgba(paint_tokens.colors.background_overlay),
-                                    );
-                                }
-                            },
-                        )
-                        .size_full(),
-                    )
                     .when(state == NotchState::Launcher, |element| {
                         element.child(launcher_content(
                             &query,
@@ -784,11 +837,13 @@ impl Render for NotchView {
                             geometry.width,
                             geometry.height,
                         ))
+                    })
+                    .when(state == NotchState::Idle, |element| {
+                        element.child(idle_content(
+                            &modules, &clock, &snapshot, &commands, &tokens,
+                        ))
                     }),
             )
-            .when(state == NotchState::Idle, |element| {
-                element.child(idle_content(&clock, &tokens))
-            })
     }
 }
 
@@ -821,11 +876,18 @@ const LAUNCHER_ITEMS: &[(&str, &str, &str)] = &[
     ),
 ];
 
-fn idle_content(clock: &SharedString, tokens: &DesignTokens) -> impl IntoElement {
+fn idle_content(
+    modules: &[String],
+    clock: &SharedString,
+    snapshot: &CompositorSnapshot,
+    commands: &mpsc::Sender<ShellCommand>,
+    tokens: &DesignTokens,
+) -> impl IntoElement {
+    let module_elements = modules
+        .iter()
+        .filter_map(|module| module_element(module, clock, snapshot, commands, tokens));
+
     div()
-        .absolute()
-        .top_0()
-        .left_0()
         .w_full()
         .h_full()
         .flex()
@@ -834,12 +896,67 @@ fn idle_content(clock: &SharedString, tokens: &DesignTokens) -> impl IntoElement
         .gap(px(tokens.spacing.sm as f32))
         .text_color(rgb(tokens.colors.foreground))
         .text_size(px(tokens.typography.label_size as f32))
-        .child(
-            div()
-                .text_size(px(tokens.typography.label_size as f32 - 2.0))
-                .child("▮▮▮"),
-        )
-        .child(clock.clone())
+        .children(module_elements)
+}
+
+fn module_element(
+    module: &str,
+    clock: &SharedString,
+    snapshot: &CompositorSnapshot,
+    commands: &mpsc::Sender<ShellCommand>,
+    tokens: &DesignTokens,
+) -> Option<gpui::Div> {
+    let element = div()
+        .flex()
+        .items_center()
+        .gap(px(4.0))
+        .text_color(rgb(tokens.colors.foreground));
+
+    match module {
+        "clock" => Some(element.child(clock.clone())),
+        "network" => Some(
+            element.child(
+                div()
+                    .text_size(px(tokens.typography.label_size as f32 - 2.0))
+                    .child("▮▮▮"),
+            ),
+        ),
+        "audio" => Some(element.child("◖")),
+        "battery" => Some(element.child("▰")),
+        "media" => Some(element.child("▶")),
+        "workspaces" => {
+            let workspace = snapshot.focused_workspace?;
+            let sender = commands.clone();
+            Some(
+                element
+                    .child(format!("WS {workspace}"))
+                    .on_mouse_down(gpui::MouseButton::Left, move |_event, _window, _cx| {
+                        if let Err(error) = sender.send(ShellCommand::FocusWorkspace(workspace)) {
+                            tracing::warn!(%error, ?workspace, "could not enqueue workspace focus command");
+                        }
+                    }),
+            )
+        }
+        _ => None,
+    }
+}
+
+fn is_known_module(module: &str) -> bool {
+    matches!(
+        module,
+        "clock" | "network" | "audio" | "battery" | "media" | "workspaces"
+    )
+}
+
+fn focused_output_size(snapshot: &CompositorSnapshot) -> Option<(f32, f32)> {
+    let output = snapshot
+        .focused_output
+        .and_then(|focused| snapshot.monitors.iter().find(|output| output.id == focused))
+        .or_else(|| snapshot.monitors.first())?;
+    let width = output.geometry.size.width;
+    let height = output.geometry.size.height;
+    (width.is_finite() && width > 0.0 && height.is_finite() && height > 0.0)
+        .then_some((width, height))
 }
 
 fn launcher_content(
@@ -900,9 +1017,6 @@ fn launcher_content(
         });
 
     div()
-        .absolute()
-        .top_0()
-        .left_0()
         .w(px(width))
         .h(px(height))
         .p(px(tokens.spacing.md as f32))
@@ -931,7 +1045,7 @@ fn launcher_content(
         .child(div().flex().flex_col().gap(px(2.0)).children(rows))
 }
 
-fn build_notch_path(geometry: NotchGeometry) -> Option<Path<Pixels>> {
+fn build_notch_path(geometry: NotchGeometry, origin: gpui::Point<Pixels>) -> Option<Path<Pixels>> {
     let width = px(geometry.width);
     let height = px(geometry.height);
     let radius_value = geometry
@@ -941,6 +1055,7 @@ fn build_notch_path(geometry: NotchGeometry) -> Option<Path<Pixels>> {
         .min(geometry.height / 2.0);
     let radius = px(radius_value);
     let mut builder = PathBuilder::fill();
+    builder.translate(origin);
 
     match geometry.edge {
         shell_core::NotchEdge::Top => {
@@ -1087,124 +1202,6 @@ fn format_uptime(seconds: u64) -> String {
     format!("{hours:02}:{minutes:02}:{seconds:02}")
 }
 
-struct PanelView {
-    snapshot: CompositorSnapshot,
-    tokens: DesignTokens,
-    clock: SharedString,
-    status: SharedString,
-    commands: mpsc::Sender<ShellCommand>,
-}
-
-impl PanelView {
-    fn new(
-        snapshot: CompositorSnapshot,
-        tokens: DesignTokens,
-        commands: mpsc::Sender<ShellCommand>,
-        cx: &mut Context<Self>,
-    ) -> Self {
-        let task = cx.spawn(async move |this, cx| {
-            loop {
-                let clock = local_clock();
-                if this
-                    .update(cx, |view: &mut PanelView, cx| {
-                        view.clock = clock;
-                        cx.notify();
-                    })
-                    .is_err()
-                {
-                    return;
-                }
-                cx.background_executor().timer(Duration::from_secs(1)).await;
-            }
-        });
-        task.detach();
-
-        Self {
-            snapshot,
-            tokens,
-            clock: local_clock(),
-            status: "compositor: waiting for events".into(),
-            commands,
-        }
-    }
-}
-
-impl Render for PanelView {
-    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
-        let tokens = self.tokens.clone();
-        let focused_workspace = self.snapshot.focused_workspace;
-        let commands = self.commands.clone();
-
-        let workspaces = self.snapshot.workspaces.iter().map(move |workspace| {
-            let workspace_id = workspace.id;
-            let focused = workspace.active || Some(workspace_id) == focused_workspace;
-            let label = workspace
-                .name
-                .clone()
-                .unwrap_or_else(|| workspace_id.to_string());
-            let mut button = div()
-                .id(format!("workspace-{workspace_id}"))
-                .px(px(tokens.spacing.md as f32))
-                .py(px(tokens.spacing.sm as f32))
-                .rounded(px(tokens.radius.sm as f32))
-                .text_size(px(tokens.typography.label_size as f32))
-                .child(label);
-
-            if focused {
-                button = button
-                    .bg(rgb(tokens.colors.foreground))
-                    .text_color(rgb(tokens.colors.background));
-            } else {
-                button = button.text_color(rgb(tokens.colors.foreground));
-            }
-
-            let commands = commands.clone();
-            button.on_mouse_down(gpui::MouseButton::Left, move |_event, _window, _cx| {
-                if let Err(error) = commands.send(ShellCommand::FocusWorkspace(workspace_id)) {
-                    tracing::warn!(%error, ?workspace_id, "could not enqueue workspace focus command");
-                }
-            })
-        });
-
-        div()
-            .id("shell-panel-root")
-            .size_full()
-            .px(px(tokens.spacing.md as f32))
-            .flex()
-            .items_center()
-            .gap(px(tokens.spacing.md as f32))
-            .bg(rgba(tokens.colors.background_overlay))
-            .text_color(rgb(tokens.colors.foreground))
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(px(tokens.spacing.sm as f32))
-                    .flex_1()
-                    .children(workspaces),
-            )
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .flex_1()
-                    .text_size(px(tokens.typography.title_size as f32))
-                    .font_weight(FontWeight::BOLD)
-                    .child(self.clock.clone()),
-            )
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .justify_end()
-                    .flex_1()
-                    .text_size(px(tokens.typography.label_size as f32))
-                    .child(self.status.clone()),
-            )
-    }
-}
-
 fn local_clock() -> SharedString {
     Local::now().format("%H:%M").to_string().into()
 }
@@ -1278,8 +1275,8 @@ impl Render for ViabilityView {
 
 #[cfg(test)]
 mod tests {
-    use super::window_initialization_error;
-    use shell_core::PlatformError;
+    use super::{focused_output_size, window_initialization_error};
+    use shell_core::{CompositorSnapshot, Output, OutputId, PlatformError, Rect};
 
     #[test]
     fn window_creation_errors_are_platform_initialization_errors() {
@@ -1294,5 +1291,28 @@ mod tests {
         let clock = super::local_clock();
         assert_eq!(clock.len(), 5);
         assert_eq!(clock.as_bytes()[2], b':');
+    }
+
+    #[test]
+    fn notch_uses_the_focused_outputs_logical_size() {
+        let primary = Output::new(
+            OutputId::new(1),
+            "DP-1",
+            Rect::from_xywh(0.0, 0.0, 1920.0, 1080.0),
+            1.0,
+        );
+        let focused = Output::new(
+            OutputId::new(2),
+            "HDMI-A-1",
+            Rect::from_xywh(1920.0, 0.0, 2560.0, 1440.0),
+            1.0,
+        );
+        let snapshot = CompositorSnapshot {
+            monitors: vec![primary, focused],
+            focused_output: Some(OutputId::new(2)),
+            ..Default::default()
+        };
+
+        assert_eq!(focused_output_size(&snapshot), Some((2560.0, 1440.0)));
     }
 }

@@ -11,11 +11,18 @@ The shell now owns a renderer-independent notch model in `shell-core`:
 - `FocusManager` centralizes notch keyboard ownership, modal pointer ownership,
   click-outside dismissal and Escape dismissal.
 
-The GPUI frontend creates a dedicated fullscreen layer-shell surface for the
-notch. Its visible body is painted with a GPUI `PathBuilder`: the upper (or
-lower) left and right corners are concave, while the opposite corners use the
-configured radius. The body is centered and resized from the animated geometry,
-so width and height transitions do not require destroying the Wayland surface.
+The GPUI frontend creates one dedicated fullscreen layer-shell surface for the
+notch. The surface is only an input/rendering coordinator; there is no separate
+full-width bar. GPUI receives an explicit logical output size from the focused
+compositor output, preventing the anchored layer's requested `0x0` size from
+collapsing its internal layout. Its visible body is painted with a GPUI
+`PathBuilder` translated to the same centered bounds used by the content. The
+body is resized from the animated geometry, so width and height transitions do
+not require destroying the Wayland surface.
+
+The layer reserves `notch.collapsed_height` pixels on the top edge using the
+same exclusive-zone behavior validated by `layer-shell-poc`. Normal clients
+therefore start below the idle notch without introducing a visual bar.
 
 Input behavior is explicit:
 
@@ -26,17 +33,21 @@ Input behavior is explicit:
   region, allowing applications below the transparent surface to receive
   pointer input again.
 
+The idle body is composed from the selected `notch.modules` list. The clock is
+rendered inside the notch, and the collapsed width is recalculated from the
+known selected modules while the launcher uses the configured expanded width.
+
 The notch-specific values are configurable in `config/modules/notch.toml`:
-`collapsed_width`, `width`, both heights, `corner_radius`, `corner_size`,
-`edge` and animation settings.
+`modules`, `collapsed_width`, `width`, both heights, `corner_radius`,
+`corner_size`, `edge` and animation settings.
 
 ## Validation
 
 Passed locally:
 
 ```text
-cargo fmt --all
-cargo check --workspace
+cargo fmt --all --check
+cargo check --workspace --all-targets
 cargo test --workspace
 cargo clippy --workspace --all-targets -- -D warnings
 ATLANTIC_CONFIG_DIR=./config cargo run --quiet --bin shell-app -- --no-ui
@@ -47,8 +58,20 @@ edge mapping, interruptible retargeting, and focus dismissal behavior.
 
 ## Runtime gate evidence
 
-G07/G08 still require a live Hyprland session for visual and compositor
-evidence. Run:
+Runtime geometry was also checked in the Hyprland session. The final layer
+topology was:
+
+```text
+linux-shell-notch         x=0    y=0   w=2560 h=1080
+linux-shell-debug-overlay x=2264 y=910 w=280  h=154
+```
+
+The rendered idle body was measured at `x=1208`, `y=0`, `w=144`, `h=32` on the
+2560x1080 output, with a 32-pixel top exclusive zone. The stabilized screenshot
+confirmed one centered body with the clock inside it.
+
+There was no `linux-shell-panel` layer. G07/G08 still require a manual live
+interaction pass for complete visual and pointer evidence. Run:
 
 ```text
 ATLANTIC_CONFIG_DIR=./config cargo run --bin shell-app -- --panel

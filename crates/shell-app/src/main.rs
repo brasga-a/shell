@@ -65,7 +65,7 @@ fn main() {
         }
     } else if !disable_ui
         && (force_panel || env::var_os("WAYLAND_DISPLAY").is_some())
-        && config_manager.snapshot().bar.enabled
+        && config_manager.snapshot().notch.enabled
     {
         let compositor_events = match application.subscribe_compositor_events() {
             Ok(stream) => Some(spawn_event_forwarder(stream)),
