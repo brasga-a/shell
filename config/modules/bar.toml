@@ -1,0 +1,9 @@
+enabled = true
+position = "top"
+height = 32
+reserve_space = true
+keyboard = "none"
+
+modules_left = ["workspaces"]
+modules_center = ["clock"]
+modules_right = ["network", "audio", "battery"]

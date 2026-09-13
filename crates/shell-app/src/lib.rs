@@ -1,0 +1,292 @@
+//! Composition-root support for the shell executable.
+
+use std::sync::OnceLock;
+
+use shell_core::{
+    CompositorError, CompositorEvent, CompositorPort, CompositorSnapshot, ConfigPort, Output,
+    PlatformError, ShellConfig,
+};
+use shell_linux::LinuxServices;
+use shell_platform::{
+    OutputRegistry, OutputStateError, OutputTransition, SurfaceMetrics, SurfaceTopology,
+};
+use shell_theme::DesignTokens;
+use shell_ui_gpui::GpuiFrontend;
+use tracing_subscriber::{EnvFilter, fmt, layer::SubscriberExt, util::SubscriberInitExt};
+
+static LOGGING_INITIALIZED: OnceLock<()> = OnceLock::new();
+
+/// Initialize structured logging once for the process.
+pub fn initialize_logging() -> Result<(), PlatformError> {
+    if LOGGING_INITIALIZED.get().is_some() {
+        return Ok(());
+    }
+
+    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
+    tracing_subscriber::registry()
+        .with(fmt::layer())
+        .with(filter)
+        .try_init()
+        .map_err(|error| PlatformError::initialization(error.to_string()))?;
+
+    let _ = LOGGING_INITIALIZED.set(());
+    Ok(())
+}
+
+pub struct ShellApplication {
+    compositor: Box<dyn CompositorPort>,
+    config: Box<dyn ConfigPort>,
+    linux_services: LinuxServices,
+    frontend: GpuiFrontend,
+    design_tokens: DesignTokens,
+    output_registry: OutputRegistry,
+    compositor_state: Option<CompositorSnapshot>,
+}
+
+impl ShellApplication {
+    pub fn new(
+        compositor: Box<dyn CompositorPort>,
+        config: Box<dyn ConfigPort>,
+        linux_services: LinuxServices,
+        frontend: GpuiFrontend,
+        design_tokens: DesignTokens,
+    ) -> Self {
+        Self {
+            compositor,
+            config,
+            linux_services,
+            frontend,
+            design_tokens,
+            output_registry: OutputRegistry::new(SurfaceTopology::Independent),
+            compositor_state: None,
+        }
+    }
+
+    /// Initialize application-owned state without assuming a live compositor.
+    pub fn start(&mut self) -> Result<(), PlatformError> {
+        let config = self
+            .config
+            .load()
+            .map_err(|error| PlatformError::initialization(error.to_string()))?;
+
+        self.apply_config(&config)?;
+        let transitions = self.refresh_compositor_state()?;
+
+        tracing::info!(
+            component = "shell-app",
+            config_schema = config.schema_version,
+            outputs = self.output_registry.outputs().len(),
+            output_transitions = transitions.len(),
+            "shell composition root initialized"
+        );
+
+        Ok(())
+    }
+
+    /// Applies one already validated configuration snapshot to application-owned
+    /// state. Callers should obtain snapshots from `ConfigManager`, never from
+    /// individual TOML files.
+    pub fn apply_config(&mut self, config: &ShellConfig) -> Result<(), PlatformError> {
+        config
+            .validate()
+            .map_err(|error| PlatformError::initialization(error.to_string()))?;
+        self.design_tokens = DesignTokens::from_config(&config.theme);
+        self.frontend.prepare(config);
+        self.output_registry
+            .set_surface_metrics(SurfaceMetrics::new(
+                config.bar.height as f32,
+                config.notch.width as f32,
+                config.notch.collapsed_height as f32,
+            ))
+            .map_err(output_state_error)?;
+        let _ = &self.linux_services;
+        Ok(())
+    }
+
+    /// Refreshes output ownership from the compositor without making a
+    /// temporarily unavailable IPC connection fatal during startup.
+    pub fn refresh_outputs(&mut self) -> Result<Vec<OutputTransition>, PlatformError> {
+        match self.compositor.outputs() {
+            Ok(outputs) => self.apply_outputs(outputs),
+            Err(CompositorError::Unavailable { message })
+            | Err(CompositorError::Connection { message }) => {
+                tracing::warn!(%message, "compositor output discovery is unavailable");
+                Ok(Vec::new())
+            }
+            Err(error) => Err(PlatformError::initialization(error.to_string())),
+        }
+    }
+
+    /// Refreshes the complete compositor state when the adapter supports it,
+    /// while retaining output-only startup for simpler adapters.
+    pub fn refresh_compositor_state(&mut self) -> Result<Vec<OutputTransition>, PlatformError> {
+        match self.compositor.snapshot() {
+            Ok(snapshot) => self.apply_compositor_snapshot(snapshot),
+            Err(CompositorError::Unavailable { message })
+            | Err(CompositorError::Connection { message })
+            | Err(CompositorError::Unsupported { operation: message }) => {
+                tracing::warn!(%message, "compositor snapshot is unavailable; falling back to outputs");
+                self.refresh_outputs()
+            }
+            Err(error) => Err(PlatformError::initialization(error.to_string())),
+        }
+    }
+
+    pub fn apply_compositor_event(
+        &mut self,
+        event: CompositorEvent,
+    ) -> Result<Vec<OutputTransition>, PlatformError> {
+        self.apply_compositor_snapshot(event.snapshot)
+    }
+
+    pub fn compositor_state(&self) -> Option<&CompositorSnapshot> {
+        self.compositor_state.as_ref()
+    }
+
+    pub fn output_registry(&self) -> &OutputRegistry {
+        &self.output_registry
+    }
+
+    /// Applies an output snapshot or a translated hotplug event to the
+    /// output-owned surface state.
+    pub fn apply_outputs(
+        &mut self,
+        outputs: impl IntoIterator<Item = Output>,
+    ) -> Result<Vec<OutputTransition>, PlatformError> {
+        self.output_registry
+            .reconcile(outputs)
+            .map_err(output_state_error)
+    }
+
+    fn apply_compositor_snapshot(
+        &mut self,
+        snapshot: CompositorSnapshot,
+    ) -> Result<Vec<OutputTransition>, PlatformError> {
+        let transitions = self
+            .output_registry
+            .reconcile_with_focus(snapshot.monitors.clone(), snapshot.focused_output)
+            .map_err(output_state_error)?;
+        self.compositor_state = Some(snapshot);
+        Ok(transitions)
+    }
+}
+
+fn output_state_error(error: OutputStateError) -> PlatformError {
+    PlatformError::initialization(format!("output state reconciliation failed: {error}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use shell_config::InMemoryConfig;
+    use shell_core::{
+        CompositorError, CompositorPort, CompositorSnapshot, Output, OutputId, Rect, Window,
+        Workspace, WorkspaceId,
+    };
+    use shell_linux::LinuxServices;
+    use shell_platform::{Anchors, ShellLayer, SurfaceSpec};
+    use shell_theme::DesignTokens;
+    use shell_ui_gpui::GpuiFrontend;
+
+    use super::ShellApplication;
+
+    struct SnapshotCompositor {
+        snapshot: CompositorSnapshot,
+    }
+
+    impl CompositorPort for SnapshotCompositor {
+        fn outputs(&self) -> Result<Vec<Output>, CompositorError> {
+            Ok(self.snapshot.monitors.clone())
+        }
+
+        fn workspaces(&self) -> Result<Vec<Workspace>, CompositorError> {
+            Ok(self.snapshot.workspaces.clone())
+        }
+
+        fn windows(&self) -> Result<Vec<Window>, CompositorError> {
+            Ok(self.snapshot.windows.clone())
+        }
+
+        fn focus_workspace(&self, _workspace_id: WorkspaceId) -> Result<(), CompositorError> {
+            Ok(())
+        }
+
+        fn snapshot(&self) -> Result<CompositorSnapshot, CompositorError> {
+            Ok(self.snapshot.clone())
+        }
+    }
+
+    fn output(id: u64, x: f32) -> Output {
+        Output::new(
+            OutputId::new(id),
+            format!("output-{id}"),
+            Rect::from_xywh(x, 0.0, 1920.0, 1080.0),
+            1.0,
+        )
+    }
+
+    fn application(snapshot: CompositorSnapshot) -> ShellApplication {
+        ShellApplication::new(
+            Box::new(SnapshotCompositor { snapshot }),
+            Box::new(InMemoryConfig::default()),
+            LinuxServices,
+            GpuiFrontend::new(SurfaceSpec::new(
+                OutputId::new(1),
+                ShellLayer::Top,
+                Anchors::TOP,
+            )),
+            DesignTokens::default(),
+        )
+    }
+
+    #[test]
+    fn applies_snapshot_focused_output_atomically_to_registry() {
+        let snapshot = CompositorSnapshot {
+            monitors: vec![output(1, 0.0), output(2, 1920.0)],
+            focused_output: Some(OutputId::new(2)),
+            ..CompositorSnapshot::default()
+        };
+        let mut application = application(snapshot);
+
+        application.start().expect("snapshot is valid");
+
+        assert_eq!(
+            application.output_registry().focused_output(),
+            Some(OutputId::new(2))
+        );
+        assert_eq!(
+            application.compositor_state().unwrap().focused_output,
+            Some(OutputId::new(2))
+        );
+    }
+
+    #[test]
+    fn canonical_snapshot_can_explicitly_clear_focus() {
+        let snapshot = CompositorSnapshot {
+            monitors: vec![output(1, 0.0)],
+            focused_output: Some(OutputId::new(1)),
+            ..CompositorSnapshot::default()
+        };
+        let mut application = application(snapshot);
+        application.start().expect("snapshot is valid");
+
+        let transitions = application
+            .apply_compositor_event(shell_core::CompositorEvent {
+                kind: shell_core::CompositorEventKind::Focus,
+                snapshot: CompositorSnapshot {
+                    monitors: vec![output(1, 0.0)],
+                    focused_output: None,
+                    ..CompositorSnapshot::default()
+                },
+            })
+            .expect("focus update is valid");
+
+        assert!(transitions.iter().any(|transition| matches!(
+            transition,
+            shell_platform::OutputTransition::Focused {
+                previous: Some(previous),
+                current: None,
+            } if *previous == OutputId::new(1)
+        )));
+        assert_eq!(application.output_registry().focused_output(), None);
+    }
+}
