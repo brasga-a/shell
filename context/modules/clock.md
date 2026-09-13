@@ -2,7 +2,7 @@
 
 ## Crate
 
-`crates/modules/clock` → package `luna-module-clock`
+`crates/modules/clock` → package `shell-module-clock`
 
 ## Purpose
 

@@ -2,19 +2,7 @@
 
 ## Crate
 
-```text
-crates/modules/launcher
-```
-
-Package:
-
-```text
-luna-module-launcher
-```
-
----
-
-# Purpose
+`crates/modules/launcher` → package `shell-module-launcher`
 
 The Launcher is Luna's primary command/search surface.
 

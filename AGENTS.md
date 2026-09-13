@@ -1,8 +1,8 @@
 # AGENTS.md
 
-This file defines the operating rules for coding agents working in the Luna repository.
+This file defines the operating rules for coding agents working in the Shell repository.
 
-Luna is a Rust/Wayland desktop shell focused initially on Hyprland. GPUI is the presentation frontend, GPUI Kit is the preferred UI foundation, and the architecture must keep compositor, Linux services, configuration, domain state, and presentation concerns separated.
+Shell is a Rust/Wayland desktop shell focused initially on Hyprland. GPUI is the presentation frontend, GPUI Kit is the preferred UI foundation, and the architecture must keep compositor, Linux services, configuration, domain state, and presentation concerns separated.
 
 ---
 
@@ -195,7 +195,7 @@ focus helpers
 motion / presence / transitions
 ```
 
-Keep Luna-owned primitives for genuinely shell-specific behavior such as:
+Keep Shell-owned primitives for genuinely shell-specific behavior such as:
 
 ```text
 Notch geometry

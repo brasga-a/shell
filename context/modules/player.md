@@ -2,7 +2,7 @@
 
 ## Crate
 
-`crates/modules/player` → package `luna-module-player`
+`crates/modules/player` → package `shell-module-player`
 
 ## Purpose
 

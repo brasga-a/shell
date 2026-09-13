@@ -2,9 +2,9 @@
 
 ## Status
 
-Planned architecture change for the Luna workspace.
+Planned architecture change for the Shell workspace.
 
-This document describes the code changes required to move Luna feature modules into **independent Rust crates** registered into the Notch host while adopting **GPUI Kit** as the canonical GPUI dependency and component foundation for presentation code.
+This document describes the code changes required to move Shell feature modules into **independent Rust crates** registered into the Notch host while adopting **GPUI Kit** as the canonical GPUI dependency and component foundation for presentation code.
 
 Canonical module documentation lives in [modules/README.md](./modules/README.md).
 
@@ -21,12 +21,12 @@ GPUI Kit
 └── gpui-component          styled reusable components
         │
         ▼
-Luna presentation layer
-├── shell-ui-gpui           shell host + Notch + Luna-specific UI
+Shell presentation layer
+├── shell-ui-gpui           shell host + Notch + Shell-specific UI
 └── module crates           feature UI rendered inside the Notch
 ```
 
-Luna should use **`gpui-kit` as the facade dependency**, rather than independently selecting unrelated GPUI, `gpui-base` and `gpui-component` versions.
+Shell should use **`gpui-kit` as the facade dependency**, rather than independently selecting unrelated GPUI, `gpui-base` and `gpui-component` versions.
 
 GPUI Kit pins and re-exports the matching GPUI family and exposes:
 
@@ -38,9 +38,9 @@ gpui_kit::component    → gpui-component
 gpui_kit::assets       → default assets/icons
 ```
 
-The styled component layer is intentionally allowed in Luna. Modules may directly use and customize GPUI Kit components. Luna should only introduce wrappers when there is a repeated Luna-specific semantic or visual requirement.
+The styled component layer is intentionally allowed in Shell. Modules may directly use and customize GPUI Kit components. Shell should only introduce wrappers when there is a repeated Shell-specific semantic or visual requirement.
 
-Do **not** create a parallel Luna implementation of generic controls merely to avoid using GPUI Kit.
+Do **not** create a parallel Shell implementation of generic controls merely to avoid using GPUI Kit.
 
 ---
 
@@ -74,16 +74,16 @@ crates/
 Package names:
 
 ```text
-luna-module-launcher
-luna-module-calendar
-luna-module-player
-luna-module-theme
-luna-module-resources
-luna-module-clock
-luna-module-settings
+shell-module-launcher
+shell-module-calendar
+shell-module-player
+shell-module-theme
+shell-module-resources
+shell-module-clock
+shell-module-settings
 ```
 
-The modules remain statically linked into the Luna executable. A crate boundary does **not** imply one process per module, dynamic loading or a stable third-party plugin ABI.
+The modules remain statically linked into the Shell executable. A crate boundary does **not** imply one process per module, dynamic loading or a stable third-party plugin ABI.
 
 ---
 
@@ -95,13 +95,13 @@ The following crates are allowed to depend on GPUI Kit:
 
 ```text
 shell-ui-gpui
-luna-module-launcher
-luna-module-calendar
-luna-module-player
-luna-module-theme
-luna-module-resources
-luna-module-clock
-luna-module-settings
+shell-module-launcher
+shell-module-calendar
+shell-module-player
+shell-module-theme
+shell-module-resources
+shell-module-clock
+shell-module-settings
 ```
 
 These crates render GPUI UI and may use:
@@ -129,7 +129,7 @@ shell-theme
 
 They remain renderer-independent.
 
-`shell-theme` owns Luna's semantic theme/configuration model. It must not become a GPUI Kit crate. Translation from Luna theme tokens into the active GPUI Kit theme belongs in the presentation layer.
+`shell-theme` owns Shell's semantic theme/configuration model. It must not become a GPUI Kit crate. Translation from Shell theme tokens into the active GPUI Kit theme belongs in the presentation layer.
 
 ## 3.3 Composition root
 
@@ -143,7 +143,7 @@ If ownership of `gpui_kit::application()` / `gpui_kit::init()` later moves into 
 
 This migration must not mix incompatible GPUI type families.
 
-Luna currently uses direct GPUI dependencies. GPUI Kit publishes and pins its own matching GPUI family and explicitly acts as the facade for applications.
+Shell currently uses direct GPUI dependencies. GPUI Kit publishes and pins its own matching GPUI family and explicitly acts as the facade for applications.
 
 Target workspace dependency:
 
@@ -187,15 +187,15 @@ Application startup becomes conceptually:
 gpui_kit::application().run(|cx| {
     gpui_kit::init(cx);
 
-    // create Luna windows/surfaces after Kit initialization
+    // create Shell windows/surfaces after Kit initialization
 });
 ```
 
-`gpui_kit::init(cx)` must run once before Luna uses GPUI Kit components.
+`gpui_kit::init(cx)` must run once before Shell uses GPUI Kit components.
 
 ### Mandatory compatibility check
 
-Because Luna depends on Wayland layer-shell semantics, replacing the existing GPUI pin is not a blind dependency update.
+Because Shell depends on Wayland layer-shell semantics, replacing the existing GPUI pin is not a blind dependency update.
 
 Before deleting the current direct GPUI dependency, revalidate:
 
@@ -211,7 +211,7 @@ input regions
 fractional scaling
 ```
 
-GPUI Kit re-exports the GPUI `layer_shell` API, but Luna's existing G01/G02 viability requirements still apply.
+GPUI Kit re-exports the GPUI `layer_shell` API, but Shell's existing G01/G02 viability requirements still apply.
 
 If the GPUI Kit pinned GPUI snapshot fails a required layer-shell behavior, stop the migration and resolve the frontend dependency before moving module implementation onto it.
 
@@ -272,13 +272,13 @@ Add module crate aliases at workspace level when the crates are created:
 ```toml
 [workspace.dependencies]
 
-luna-module-launcher = { path = "crates/modules/launcher" }
-luna-module-calendar = { path = "crates/modules/calendar" }
-luna-module-player = { path = "crates/modules/player" }
-luna-module-theme = { path = "crates/modules/theme" }
-luna-module-resources = { path = "crates/modules/resources" }
-luna-module-clock = { path = "crates/modules/clock" }
-luna-module-settings = { path = "crates/modules/settings" }
+shell-module-launcher = { path = "crates/modules/launcher" }
+shell-module-calendar = { path = "crates/modules/calendar" }
+shell-module-player = { path = "crates/modules/player" }
+shell-module-theme = { path = "crates/modules/theme" }
+shell-module-resources = { path = "crates/modules/resources" }
+shell-module-clock = { path = "crates/modules/clock" }
+shell-module-settings = { path = "crates/modules/settings" }
 
 gpui-kit = "0.6"
 ```
@@ -308,7 +308,7 @@ Notch rendering
 layer-shell window configuration
 focus/input coordination
 module host
-shared Luna shell components
+shared Shell shell components
 GPUI Kit theme adaptation
 ```
 
@@ -380,7 +380,7 @@ shell-ui-gpui.workspace = true
 gpui-kit.workspace = true
 ```
 
-Uses GPUI Kit controls to edit Luna's semantic theme model. It does not replace `shell-theme`.
+Uses GPUI Kit controls to edit Shell's semantic theme model. It does not replace `shell-theme`.
 
 ### Resources
 
@@ -432,7 +432,7 @@ validation feedback
 
 # 7. GPUI Kit component policy
 
-GPUI Kit components are first-class dependencies of Luna's presentation layer.
+GPUI Kit components are first-class dependencies of Shell's presentation layer.
 
 Preferred:
 
@@ -450,7 +450,7 @@ GPUI Kit Tabs
 
 when they satisfy the feature requirement.
 
-Luna may:
+Shell may:
 
 ```text
 compose them
@@ -460,9 +460,9 @@ wrap them
 copy/fork an individual component when necessary
 ```
 
-Do not fork the entire GPUI Kit repository merely to alter Luna styling.
+Do not fork the entire GPUI Kit repository merely to alter Shell styling.
 
-A Luna wrapper/component is justified when it introduces a stable product-level semantic, for example:
+A Shell wrapper/component is justified when it introduces a stable product-level semantic, for example:
 
 ```text
 NotchModuleHeader
@@ -478,7 +478,7 @@ A wrapper is **not** required merely to rename a generic GPUI Kit `Button` or `S
 
 # 8. Theme integration
 
-Luna keeps one canonical semantic theme model:
+Shell keeps one canonical semantic theme model:
 
 ```text
 shell-theme
@@ -492,7 +492,7 @@ GPUI Kit theme
 Notch + modules
 ```
 
-`theme.toml` remains the persistent source of Luna theme configuration.
+`theme.toml` remains the persistent source of Shell theme configuration.
 
 The Theme module edits that model through `ConfigPort` / typed configuration APIs.
 
@@ -510,7 +510,7 @@ theme.toml change
 
 Do not let individual module crates create independent color systems.
 
-Modules may use GPUI Kit semantic theme APIs and Luna-specific tokens exposed through the presentation context.
+Modules may use GPUI Kit semantic theme APIs and Shell-specific tokens exposed through the presentation context.
 
 ---
 
@@ -552,7 +552,7 @@ Required properties:
 stable module identity
 GPUI-native render entry point
 controlled application/service context
-access to Luna/GPUI Kit theme
+access to Shell/GPUI Kit theme
 no direct Wayland ownership
 no raw compositor commands
 ```
@@ -670,7 +670,7 @@ GPUI Kit layout/components determine content layout; shell-ui-gpui translates me
 
 With GPUI Kit available, `shell-ui-gpui` should not recreate a generic widget library.
 
-Keep only Luna-specific cross-module UI here:
+Keep only Shell-specific cross-module UI here:
 
 ```text
 Notch shell
@@ -679,8 +679,8 @@ module chrome
 shell-specific surface treatments
 focus/input integration
 module host
-Luna theme adapter
-Luna-specific repeated components
+Shell theme adapter
+Shell-specific repeated components
 ```
 
 Generic controls should normally come directly from GPUI Kit.
@@ -688,10 +688,10 @@ Generic controls should normally come directly from GPUI Kit.
 Example:
 
 ```text
-luna-module-player
+shell-module-player
 ├── PlayerModule
-├── TrackMetadata       Luna feature component
-├── PlayerControls      Luna feature component
+├── TrackMetadata       Shell feature component
+├── PlayerControls      Shell feature component
 └── GPUI Kit Button / Slider / Tooltip
 ```
 
@@ -730,7 +730,7 @@ raw PipeWire client creation
 raw Hyprland socket handling
 ```
 
-A GPUI Kit component may emit an intent; infrastructure execution stays behind Luna ports.
+A GPUI Kit component may emit an intent; infrastructure execution stays behind Shell ports.
 
 Example:
 
@@ -843,7 +843,7 @@ Target: [modules/resources.md](./modules/resources.md)
 Required:
 
 ```text
-typed Luna Theme model
+typed Shell Theme model
 ConfigPort
 config hot reload
 GPUI Kit theme adapter
@@ -873,7 +873,7 @@ Target: [modules/settings.md](./modules/settings.md)
 Module configuration remains modular TOML:
 
 ```text
-~/.config/luna/
+~/.config/shell/
 ├── config.toml
 ├── theme.toml
 ├── keybinds.toml
@@ -897,11 +897,11 @@ filesystem watch
 → validate
 → atomic snapshot replace
 → application event
-→ update GPUI Kit/Luna theme when needed
+→ update GPUI Kit/Shell theme when needed
 → module rerender
 ```
 
-GPUI Kit must never read Luna config files directly.
+GPUI Kit must never read Shell config files directly.
 
 ---
 
@@ -954,11 +954,11 @@ Use this order to avoid mixing incompatible GPUI types:
 8. Create module crates with gpui-kit.workspace = true
 9. Extract Clock
 10. Extract remaining modules in planned order
-11. Integrate Luna theme → GPUI Kit theme
+11. Integrate Shell theme → GPUI Kit theme
 12. Complete module/config/service tests
 ```
 
-Do not leave two unrelated GPUI families active in Luna presentation crates after the migration is complete.
+Do not leave two unrelated GPUI families active in Shell presentation crates after the migration is complete.
 
 ---
 
@@ -966,7 +966,7 @@ Do not leave two unrelated GPUI families active in Luna presentation crates afte
 
 The migration is complete when:
 
-- `gpui-kit` is the canonical GPUI dependency for Luna presentation code;
+- `gpui-kit` is the canonical GPUI dependency for Shell presentation code;
 - direct GPUI dependencies are removed from presentation crates unless a documented compatibility exception exists;
 - GPUI Kit is initialized exactly once before component use;
 - all seven initial module crates exist and compile;
@@ -976,10 +976,10 @@ The migration is complete when:
 - `shell-app` registers modules;
 - Notch navigation uses module identity rather than hardcoded feature branches;
 - modules use GPUI Kit components directly where appropriate;
-- Luna-specific wrappers exist only for repeated product semantics or styling;
-- modules consume infrastructure through explicit Luna ports;
+- Shell-specific wrappers exist only for repeated product semantics or styling;
+- modules consume infrastructure through explicit Shell ports;
 - changing active modules resizes the Notch through the common host path;
-- Luna theme/config changes propagate into GPUI Kit and registered modules;
+- Shell theme/config changes propagate into GPUI Kit and registered modules;
 - G01/G02 still pass with the GPUI version supplied by GPUI Kit;
 - `cargo check --workspace`, tests, Clippy and formatting pass.
 
@@ -997,7 +997,7 @@ JavaScript gpui-shell plugins
 separate module processes
 third-party stable plugin ABI
 per-module Wayland surfaces
-a second generic Luna widget toolkit over GPUI Kit
+a second generic Shell widget toolkit over GPUI Kit
 ```
 
-`gpui-shell` is not required for the initial Luna module architecture. Luna modules remain native Rust crates.
+`gpui-shell` is not required for the initial Shell module architecture. Shell modules remain native Rust crates.

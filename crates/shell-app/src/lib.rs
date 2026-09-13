@@ -26,25 +26,25 @@ static LOGGING_INITIALIZED: OnceLock<()> = OnceLock::new();
 pub fn build_module_registry() -> Result<ModuleRegistry, PlatformError> {
     let mut registry = ModuleRegistry::new();
     registry
-        .register(luna_module_launcher::LauncherModule)
+        .register(shell_module_launcher::LauncherModule)
         .map_err(|error| PlatformError::initialization(error.to_string()))?;
     registry
-        .register(luna_module_calendar::CalendarModule)
+        .register(shell_module_calendar::CalendarModule)
         .map_err(|error| PlatformError::initialization(error.to_string()))?;
     registry
-        .register(luna_module_player::PlayerModule)
+        .register(shell_module_player::PlayerModule)
         .map_err(|error| PlatformError::initialization(error.to_string()))?;
     registry
-        .register(luna_module_theme::ThemeModule)
+        .register(shell_module_theme::ThemeModule)
         .map_err(|error| PlatformError::initialization(error.to_string()))?;
     registry
-        .register(luna_module_resources::ResourcesModule)
+        .register(shell_module_resources::ResourcesModule)
         .map_err(|error| PlatformError::initialization(error.to_string()))?;
     registry
-        .register(luna_module_clock::ClockModule)
+        .register(shell_module_clock::ClockModule)
         .map_err(|error| PlatformError::initialization(error.to_string()))?;
     registry
-        .register(luna_module_settings::SettingsModule)
+        .register(shell_module_settings::SettingsModule)
         .map_err(|error| PlatformError::initialization(error.to_string()))?;
     Ok(registry)
 }

@@ -2,7 +2,7 @@
 
 ## Crate
 
-`crates/modules/resources` → package `luna-module-resources`
+`crates/modules/resources` → package `shell-module-resources`
 
 ## Purpose
 

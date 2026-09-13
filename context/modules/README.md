@@ -1,10 +1,10 @@
 # Module Architecture
 
-This directory is the canonical context for Luna feature modules.
+This directory is the canonical context for Shell feature modules.
 
 ## Decision
 
-Luna modules are **individual Rust crates**. The Notch remains the dynamic visual shell/container; modules are independently owned crates that render their content inside that host when activated.
+Shell modules are **individual Rust crates**. The Notch remains the dynamic visual shell/container; modules are independently owned crates that render their content inside that host when activated.
 
 ```text
 Notch / shell-ui-gpui
@@ -30,13 +30,13 @@ crates/modules/
 Recommended package names:
 
 ```text
-luna-module-launcher
-luna-module-calendar
-luna-module-player
-luna-module-theme
-luna-module-resources
-luna-module-clock
-luna-module-settings
+shell-module-launcher
+shell-module-calendar
+shell-module-player
+shell-module-theme
+shell-module-resources
+shell-module-clock
+shell-module-settings
 ```
 
 ## Dependency model

@@ -3,7 +3,7 @@ use std::fmt;
 use gpui::AnyElement;
 use shell_core::NotchConfig;
 
-/// Stable identity for the initial statically linked Luna modules.
+/// Stable identity for the initial statically linked Shell modules.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum ModuleId {
     Launcher,
