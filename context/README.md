@@ -4,18 +4,10 @@
 
 Construir uma **desktop shell moderna para Linux/Wayland**, inicialmente focada em **Hyprland**, escrita predominantemente em **Rust**.
 
-O projeto deve usar o **Ambxst** como referência funcional e arquitetural, mas não portar QML literalmente. A intenção é reproduzir e evoluir seus conceitos — panel, notch, dock, launcher, dashboard, notifications, OSD, system controls etc. — usando uma arquitetura adequada ao ecossistema Rust.
-
 Frontend inicial:
 
 ```text
 GPUI + Wayland
-```
-
-Integrações e lógica:
-
-```text
-Rust
 ```
 
 Compositor inicial:
@@ -35,264 +27,116 @@ Smithay Client Toolkit
 
 sem reescrever domínio, serviços ou integrações Linux.
 
----
-
-# 2. Referência: Ambxst
-
-**Fato confirmado:** Ambxst é uma shell Wayland baseada em Quickshell/QtQuick organizada aproximadamente em:
-
-```text
-Ambxst
-├── shell.qml
-├── config/
-├── modules/
-│   ├── bar/
-│   ├── components/
-│   ├── corners/
-│   ├── desktop/
-│   ├── dock/
-│   ├── frame/
-│   ├── globals/
-│   ├── lockscreen/
-│   ├── notch/
-│   ├── notifications/
-│   ├── services/
-│   ├── shell/
-│   ├── sidebar/
-│   ├── theme/
-│   ├── tools/
-│   └── widgets/
-├── backend/
-├── assets/
-└── scripts/
-```
-
-
-
-Essa divisão deve servir como **referência de capacidades**, não como estrutura obrigatória do código Rust.
+O Ambxst continua sendo uma referência funcional e visual, não um alvo de port literal.
 
 ---
 
-# 3. Princípio arquitetural
+# 2. Princípio arquitetural
 
-O projeto deve seguir uma arquitetura próxima de:
-
-```text
-                    ┌─────────────────────┐
-                    │      UI / GPUI      │
-                    │ panel/notch/widgets │
-                    └──────────┬──────────┘
-                               │
-                               ▼
-                    ┌─────────────────────┐
-                    │ Application / Core  │
-                    │ state + use cases   │
-                    └──────────┬──────────┘
-                               │
-            ┌──────────────────┼───────────────────┐
-            ▼                  ▼                   ▼
-      CompositorPort      SystemServicePort     ConfigPort
-            │                  │                   │
-            ▼                  ▼                   ▼
-       Hyprland IPC       D-Bus/PipeWire       TOML/JSON
-```
-
-GPUI é um **presentation adapter**, não parte do domínio.
-
-Não permitir dependências como:
+A shell segue arquitetura hexagonal: domínio e aplicação ficam independentes de GPUI, Hyprland, PipeWire e demais APIs externas.
 
 ```text
-core -> gpui
-core -> Hyprland
-core -> PipeWire
+                  ┌─────────────────────┐
+                  │       Modules       │
+                  │ individual crates   │
+                  └──────────┬──────────┘
+                             │
+                             ▼
+                  ┌─────────────────────┐
+                  │  Notch / UI Host    │
+                  │   shell-ui-gpui     │
+                  └──────────┬──────────┘
+                             │
+                             ▼
+                  ┌─────────────────────┐
+                  │ Application / Core  │
+                  │ state + use cases   │
+                  └──────────┬──────────┘
+                             │
+          ┌──────────────────┼───────────────────┐
+          ▼                  ▼                   ▼
+    CompositorPort      SystemServicePort     ConfigPort
+          │                  │                   │
+          ▼                  ▼                   ▼
+     Hyprland IPC       D-Bus/PipeWire          TOML
 ```
 
-Preferir:
+Não permitir:
 
 ```text
-gpui -> core
-
-hyprland-adapter -> core ports
-linux-adapters   -> core ports
+shell-core -> gpui
+shell-core -> Hyprland
+shell-core -> PipeWire
 ```
+
+GPUI é um presentation adapter. Hyprland e serviços Linux são adapters de infraestrutura.
 
 ---
 
-# 4. Composition Root
+# 3. Composition Root
 
-O Ambxst usa `shell.qml` como composição principal da shell e instancia vários componentes por monitor usando `Variants` sobre as telas disponíveis. Wallpaper, desktop, panel, overview, screenshot overlay e OSD seguem esse padrão.
-
-No projeto Rust, o equivalente deve existir no crate executável:
-
-```text
-shell-app/
-    main.rs
-```
+`shell-app` é o composition root.
 
 Responsabilidades:
 
 ```text
-- inicializar runtime
-- detectar outputs Wayland
-- iniciar adapters
-- carregar configuração
-- criar ShellState
-- criar surfaces por monitor
-- iniciar GPUI
-- conectar eventos do sistema ao core
+inicializar runtime
+carregar configuração
+iniciar adapters
+criar ShellState
+iniciar GPUI
+criar surfaces por output
+instanciar módulos
+registrar módulos no Notch host
+conectar eventos do sistema ao core
 ```
 
-`main.rs` não deve conter regras de negócio.
+`main.rs` não contém regras de negócio.
+
+A composição de módulos ocorre aqui para evitar dependência circular entre o host visual e crates concretos de módulos.
 
 ---
 
-# 5. Modelo de estado
+# 4. Modelo de estado
 
-O Ambxst separa conceitualmente três categorias importantes.
+Configuração persistente e runtime state permanecem separados.
 
-## Persistent Configuration
-
-Equivalente ao `Config.qml`.
-
-Ambxst mantém domínios separados como:
+Configuração:
 
 ```text
-bar
-theme
-ai
-compositor
-dock
+appearance
+panel
 notch
-desktop
-overview
-notifications
-tools
-lockscreen
-system
-weather
+modules
+keybinds
+compositor
 ```
 
-com defaults, validação e persistência reativa.
-
-No projeto Rust:
-
-```rust
-struct ShellConfig {
-    appearance: AppearanceConfig,
-    panel: PanelConfig,
-    notch: NotchConfig,
-    dock: DockConfig,
-    launcher: LauncherConfig,
-    notifications: NotificationConfig,
-    compositor: CompositorConfig,
-}
-```
-
-Usar preferencialmente:
+Runtime state:
 
 ```text
-serde
-toml
-```
-
-Configuração persistente não deve ficar armazenada dentro de componentes GPUI.
-
----
-
-## Runtime State
-
-Equivalente conceitual ao `GlobalStates`.
-
-Exemplos:
-
-```text
-focused monitor
+focused output
 active workspace
 focused window
-
-launcher open
-dashboard open
-overview open
-settings open
-
-notch state
-OSD state
-
-current media
+notch route
+active module
+media
 volume
-brightness
-battery
-
 network
 bluetooth
-
-fullscreen state
+battery
 ```
 
-Ambxst também mantém estados como launcher selecionado, dashboard atual, lockscreen, OSD, screenshot e assistant/sidebar separadamente da configuração permanente.
-
-No Rust:
-
-```rust
-struct ShellState {
-    compositor: CompositorState,
-    surfaces: SurfaceState,
-    media: MediaState,
-    audio: AudioState,
-    network: NetworkState,
-    bluetooth: BluetoothState,
-    power: PowerState,
-}
-```
-
-A UI deve **renderizar estado**, não descobri-lo diretamente.
+A UI renderiza estado; ela não descobre infraestrutura diretamente.
 
 ---
 
-# 6. Surface / Panel Architecture
+# 5. Surface / Panel Architecture
 
-Uma das decisões mais interessantes do Ambxst é `UnifiedShellPanel`.
-
-**Fato confirmado:** por monitor, ele cria um `PanelWindow` transparente ocupando toda a tela e coloca dentro dele componentes como:
+Por output, a implementação deve validar via PoC se GPUI funciona melhor com:
 
 ```text
-Bar
-Notch
-Dock
-Sidebar
-```
-
-A surface opera na layer `Overlay`.
-
-Quando nada especial está aberto, sua região de input fica restrita aos hitboxes efetivamente interativos:
-
-```text
-barHitbox
-notchHitbox
-dockHitbox
-sidebar hitbox
-```
-
-Quando um popup/notch precisa detectar clique fora, a região passa temporariamente a cobrir a tela inteira.
-
-### Meta para a implementação Rust
-
-Preservar esse conceito:
-
-```text
-Output
-└── ShellSurface
-    ├── Panel
-    ├── Notch
-    ├── Dock
-    ├── Overlay
-    └── Popups
-```
-
-Mas validar via PoC se GPUI lida melhor com:
-
-```text
-A. uma surface fullscreen por output
+A. uma surface fullscreen transparente por output
 ```
 
 ou:
@@ -305,34 +149,9 @@ B. surfaces LayerShell independentes
    └── overlays
 ```
 
-Não assumir que a arquitetura de surfaces do Quickshell é automaticamente a melhor para GPUI.
+A decisão deve ser baseada em comportamento real de input, foco, fullscreen, multi-monitor e fractional scaling.
 
----
-
-# 7. Layer Shell
-
-Para componentes tradicionais da shell:
-
-```text
-Panel:
-Layer::Top
-anchor = TOP | LEFT | RIGHT
-exclusive_zone = panel_height
-
-Notch:
-Layer::Overlay
-anchor = TOP
-exclusive_zone = none
-
-Dock:
-Layer::Top ou Overlay
-dependendo do comportamento
-
-Overlay:
-Layer::Overlay
-```
-
-Manter uma representação independente de GPUI:
+Semântica Wayland fica fora dos widgets:
 
 ```rust
 struct SurfaceSpec {
@@ -344,475 +163,249 @@ struct SurfaceSpec {
 }
 ```
 
-Essa abstração representa **semântica Wayland**, não widgets.
-
-Assim poderá existir:
-
-```text
-SurfaceSpec
-├── GPUI LayerShell adapter
-└── SCTK LayerSurface adapter
-```
-
 ---
 
-# 8. Focus e Input
+# 6. Notch
 
-Ambxst altera dinamicamente o foco de teclado.
+O **Notch é a casca visual e o host dos módulos**.
 
-Quando o notch ou sidebar necessita input:
-
-```text
-keyboard focus = Exclusive
-```
-
-Caso contrário:
+Ele é responsável por:
 
 ```text
-keyboard focus = None
-```
-
-
-
-O projeto deve possuir um coordenador central:
-
-```rust
-struct FocusManager {
-    active_surface: Option<SurfaceId>,
-    active_overlay: Option<OverlayId>,
-}
-```
-
-Responsável por:
-
-```text
-keyboard focus
-click outside
-modal ownership
-popup ordering
-input regions
+shape
+concave geometry
+background
+routing
+mount/unmount do módulo ativo
+focus/input boundary
+surface/input region
+width/height target
+resize animation
 dismiss behavior
 ```
 
-Não deixar cada widget controlar o Wayland diretamente.
+Ele não implementa a lógica funcional de Launcher, Calendar, Player, Theme, Resources, Clock ou Settings.
 
----
-
-# 9. Notch
-
-O notch do Ambxst deve ser usado como referência visual e comportamental.
-
-Ele funciona como um container dinâmico capaz de apresentar diferentes views através de uma navegação semelhante a uma stack:
+Fluxo conceitual:
 
 ```text
-Default
-Launcher
-Dashboard
-Power Menu
-Tools
-Notifications
+User intent
+    ↓
+NotchRoute::Module(ModuleId)
+    ↓
+module crate renders content
+    ↓
+layout/content size
+    ↓
+Notch computes target geometry
+    ↓
+animated resize
 ```
 
+O módulo determina seu conteúdo e layout; o Notch determina a casca, a geometria final e a transição.
 
-
-Sua largura e altura respondem ao conteúdo e são animadas.
-
-## Geometria
-
-No tema padrão, o formato não é apenas um retângulo arredondado.
-
-O Ambxst constrói uma máscara formada por:
-
-```text
-left concave corner
-+
-center rectangle
-+
-right concave corner
-```
-
-usando `RoundCorner` nas extremidades e uma máscara aplicada ao background.
-
-No Rust/GPUI, implementar isso como uma primitive própria:
-
-```text
-NotchShape
-```
-
-e não como várias entidades de domínio.
-
-Possíveis implementações:
-
-```text
-GPUI Path
-custom paint element
-GPU path/tessellation
-shader
-```
-
-A abstração importante é:
+O Notch não deve codificar uma enumeração rígida de todas as telas para sempre. Preferir:
 
 ```rust
-struct NotchGeometry {
-    width: f32,
-    height: f32,
-    radius: f32,
-    corner_size: f32,
-    position: Edge,
+enum ModuleId {
+    Launcher,
+    Calendar,
+    Player,
+    Theme,
+    Resources,
+    Clock,
+    Settings,
 }
-```
 
-A UI calcula o path a partir desses dados.
-
----
-
-# 10. Navegação do notch
-
-Não replicar diretamente `StackView`.
-
-Criar conceito próprio:
-
-```rust
 enum NotchRoute {
     Idle,
-    Launcher,
-    Dashboard,
-    Notifications,
-    PowerMenu,
-    Tools,
+    Module(ModuleId),
 }
 ```
 
-com:
-
-```rust
-struct NotchState {
-    route: NotchRoute,
-    expanded: bool,
-}
-```
-
-GPUI apenas renderiza esse estado.
+Os detalhes estão em [context/modules/README.md](./modules/README.md).
 
 ---
 
-# 11. Animações
+# 7. Módulos como crates individuais
 
-Ambxst anima propriedades como:
+**Decisão:** cada feature module é um crate Rust individual.
 
-```text
-width
-height
-corner radius
-blur
-```
-
-e utiliza diferentes easings para expansão/retração.
-
-Criar uma pequena camada reutilizável:
+Estrutura inicial:
 
 ```text
-animation/
-├── easing.rs
-├── spring.rs
-├── transition.rs
-└── timeline.rs
-```
-
-Não acoplar a semântica da aplicação às animações.
-
-Exemplo:
-
-```text
-Notch state:
-Idle -> Launcher
-```
-
-não deve significar:
-
-```text
-width = 500
-height = 420
-```
-
-O componente visual decide essas dimensões.
-
----
-
-# 12. UI primitives
-
-O Ambxst possui uma pasta explícita de componentes reutilizáveis com elementos como:
-
-```text
-StyledRect
-BarPopup
-SearchInput
-SegmentedSwitch
-Slider
-ToggleButton
-ContextMenu
-Shadow
-Tooltip
-```
-
-e também shaders próprios para gradientes e efeitos.
-
-Adotar o mesmo princípio em Rust:
-
-```text
-ui/
-├── primitives/
-│   ├── surface.rs
-│   ├── button.rs
-│   ├── icon.rs
-│   ├── text.rs
-│   ├── slider.rs
-│   ├── popup.rs
-│   └── input.rs
+crates/
+├── modules/
+│   ├── launcher/
+│   ├── calendar/
+│   ├── player/
+│   ├── theme/
+│   ├── resources/
+│   ├── clock/
+│   └── settings/
 │
-├── components/
-└── features/
+├── shell-core/
+├── shell-platform/
+├── shell-hyprland/
+├── shell-linux/
+├── shell-config/
+├── shell-theme/
+├── shell-ui-gpui/
+└── shell-app/
 ```
 
-### Regra
+Packages recomendados:
 
-Feature code deve preferir primitives da shell em vez de estilizar tudo individualmente.
+```text
+luna-module-launcher
+luna-module-calendar
+luna-module-player
+luna-module-theme
+luna-module-resources
+luna-module-clock
+luna-module-settings
+```
+
+Esses crates continuam sendo estaticamente ligados ao binário por padrão. **Crate individual não significa processo separado, plugin dinâmico ou daemon.**
+
+Cada módulo possui ownership explícito de sua feature:
+
+```text
+state específico
+commands/intents
+layout/content
+integração com ports necessários
+configuração específica
+```
+
+Cada módulo não possui ownership de:
+
+```text
+Wayland surface
+layer-shell
+Notch geometry
+Hyprland IPC
+D-Bus raw client
+PipeWire raw client
+config file parsing
+```
+
+Essas responsabilidades permanecem nas boundaries de plataforma, serviços e host visual.
 
 ---
 
-# 13. Design System
+# 8. Dependency model dos módulos
 
-O Ambxst centraliza cores, ícones e styling no módulo `theme`, incluindo `Colors`, `Icons` e `Styling`.
+`shell-ui-gpui` contém o host do Notch, primitives, animation, focus/input coordination e integração GPUI específica.
 
-Criar:
+Ele **não depende dos crates concretos dos módulos**.
 
 ```text
-shell-theme/
-├── colors.rs
-├── typography.rs
-├── spacing.rs
-├── radius.rs
-├── shadows.rs
-├── motion.rs
-└── icons.rs
+shell-core / shell-linux / shell-config / shell-theme
+                    ↑
+                    │
+             module crates
+                    ↑
+                    │ instantiated by
+                 shell-app
+                    │
+                    ▼
+             shell-ui-gpui
+              Notch host
 ```
 
-Exemplo:
+`shell-app` registra os módulos no host.
+
+Uma interface conceitual pode ser:
 
 ```rust
-struct Theme {
-    colors: Colors,
-    typography: Typography,
-    radius: RadiusScale,
-    spacing: SpacingScale,
-    motion: MotionTokens,
+trait NotchModule {
+    fn id(&self) -> ModuleId;
+    fn title(&self) -> &'static str;
+    fn render(&mut self, cx: &mut ModuleContext) -> ModuleView;
 }
 ```
 
-Nenhuma feature deve espalhar magic numbers de styling.
+A API concreta pode ser adaptada às limitações e idioms do GPUI. O importante é preservar a boundary.
 
 ---
 
-# 14. Features principais
+# 9. Módulos iniciais
 
-Usar o Ambxst como catálogo inicial de capabilities:
+Os módulos iniciais são:
 
 ```text
-Panel
-├── Workspaces
-├── Clock
-├── System tray
-├── Battery
-├── Audio
-├── Microphone
-├── Power profile
-└── Controls
-
-Notch
-├── Default view
-├── Launcher
-├── Dashboard
-├── Notifications
-├── Power menu
-└── Tools
-
-Dock
-
-Notifications
-
-OSD
-├── Volume
-├── Microphone
-└── Brightness
-
-Desktop
-
-Overview
-
-Lockscreen
-
+Launcher
+Calendar
+Player
+Theme
+Task Manager / Resources
+Clock
 Settings
-
-Screenshot
-
-Screen recording
 ```
 
-Ambxst possui módulos explícitos para essas responsabilidades.
+Documentação:
 
-Não implementar todos simultaneamente.
+- [Launcher](./modules/launcher.md)
+- [Calendar](./modules/calendar.md)
+- [Player](./modules/player.md)
+- [Theme](./modules/theme.md)
+- [Task Manager / Resources](./modules/resources.md)
+- [Clock](./modules/clock.md)
+- [Settings](./modules/settings.md)
+
+Observação importante: o crate de módulo `theme` é a **feature interativa de edição/seleção de tema**. `shell-theme` continua sendo a infraestrutura compartilhada de tokens, modelos e design system.
 
 ---
 
-# 15. Services
+# 10. UI primitives
 
-Ambxst possui uma camada extensa de services para integrar UI e sistema, incluindo:
+Primitives compartilhadas permanecem em `shell-ui-gpui` ou em uma boundary compartilhada equivalente, e não são duplicadas em cada módulo.
+
+Exemplos:
 
 ```text
-Audio
-Battery
-Bluetooth
-Brightness
-Clipboard
-Compositor
-Idle
-MPRIS
-Network
-Notifications
-Power profile
-Screen recorder
-Screenshot
-System resources
-Wallpaper
-Weather
+surface
+button
+icon
+text
+slider
+popup
+input
+tooltip
 ```
 
+Módulos usam primitives compartilhadas, mas mantêm layout e comportamento específicos dentro de seus próprios crates.
 
-
-A implementação Rust deve ser mais rigorosa.
-
-Cada integração externa deve possuir um port.
-
-Exemplo:
-
-```rust
-trait AudioService {
-    fn state(&self) -> AudioState;
-    async fn set_volume(&self, volume: f32);
-    async fn toggle_mute(&self);
-}
-
-trait NetworkService {
-    async fn scan(&self);
-    async fn connect(&self, network: NetworkId);
-}
-
-trait CompositorService {
-    fn state(&self) -> CompositorState;
-    async fn dispatch(&self, command: CompositorCommand);
-}
-```
+Evitar criar uma abstraction layer genérica para todos os elementos GPUI apenas com o objetivo de uma possível migração futura.
 
 ---
 
-# 16. Hyprland Adapter
+# 11. Design System
 
-Hyprland não deve aparecer diretamente dentro dos widgets.
-
-Criar:
+`shell-theme` continua centralizando:
 
 ```text
-platform-hyprland/
-├── ipc.rs
-├── events.rs
-├── commands.rs
-├── monitors.rs
-├── workspaces.rs
-└── windows.rs
+colors
+typography
+spacing
+radius
+shadows
+motion
+icons
 ```
 
-Transformar eventos específicos do Hyprland em eventos internos:
+Nenhum módulo deve espalhar magic numbers de styling sem motivo.
 
-```text
-Hyprland workspace event
-        ↓
-WorkspaceChanged
-        ↓
-ShellState
-        ↓
-GPUI rerender
-```
-
-Essa tradução é fundamental para permitir outros compositores futuramente.
+O módulo `luna-module-theme` consome e edita esses modelos; ele não substitui `shell-theme`.
 
 ---
 
-# 17. Compositor abstraction
+# 12. Services
 
-O próprio Ambxst já possui um `AxctlService` como camada de abstração para operações relacionadas ao compositor.
+Integrações externas ficam atrás de ports.
 
-O projeto Rust deve levar essa ideia mais longe:
-
-```rust
-trait Compositor {
-    fn monitors(&self) -> Vec<Monitor>;
-    fn workspaces(&self) -> Vec<Workspace>;
-    fn windows(&self) -> Vec<Window>;
-
-    async fn focus_workspace(&self, id: WorkspaceId);
-    async fn focus_window(&self, id: WindowId);
-    async fn dispatch(&self, cmd: CompositorCommand);
-}
-```
-
-Implementação inicial:
-
-```text
-HyprlandCompositor
-```
-
-Futuramente:
-
-```text
-NiriCompositor
-SwayCompositor
-```
-
----
-
-# 18. Backend
-
-O Ambxst atual possui um backend separado em Go e concentra ali operações que não deveriam ficar espalhadas pela UI; o repositório também mantém helpers residuais em scripts.
-
-Neste projeto **não criar um daemon separado por padrão**.
-
-Como toda a aplicação já será Rust:
-
-```text
-shell process
-├── UI
-├── application core
-├── compositor adapter
-└── Linux services
-```
-
-Só separar um daemon quando existir justificativa concreta, por exemplo:
-
-```text
-privilege boundary
-crash isolation
-persistent service independent from UI
-IPC externo
-security
-```
-
-Não reproduzir arquitetura multiprocesso apenas porque Ambxst utiliza backend separado.
-
----
-
-# 19. Linux services
-
-Preferência inicial:
+Preferências iniciais:
 
 ```text
 D-Bus -> zbus
@@ -820,44 +413,52 @@ NetworkManager -> zbus
 BlueZ -> zbus
 UPower -> zbus
 MPRIS -> zbus
-
-Audio mixer -> PipeWire
-
-Wayland -> GPUI / wayland-client
+Audio -> PipeWire
 Hyprland -> Unix IPC
+Wayland -> GPUI / wayland-client
 ```
 
-Evitar executar ferramentas CLI dentro da camada visual.
-
-Anti-pattern:
-
-```rust
-Button::on_click(|| {
-    Command::new("wpctl")...
-});
-```
-
-Preferir:
+Exemplo correto:
 
 ```text
-button
-  ↓
-AudioCommand::IncreaseVolume
-  ↓
-AudioService
-  ↓
-PipeWire adapter
+Player module
+    ↓
+MediaPort
+    ↓
+shell-linux
+    ↓
+MPRIS / D-Bus
+```
+
+Evitar:
+
+```text
+Player widget -> raw D-Bus
+Resources widget -> Command::new("ps")
+Launcher widget -> hyprctl
 ```
 
 ---
 
-# 20. Multi-monitor
+# 13. Focus e input
 
-Multi-monitor deve ser uma preocupação de primeira classe.
+O host visual possui um coordenador central para:
 
-Ambxst instancia surfaces e overlays de forma independente por `Quickshell.screens`.
+```text
+keyboard focus
+click outside
+modal ownership
+input regions
+dismiss behavior
+```
 
-Modelo recomendado:
+Módulos declaram necessidades de interação, mas não alteram layer-shell ou Wayland diretamente.
+
+---
+
+# 14. Multi-monitor
+
+Multi-monitor é uma preocupação de primeira classe.
 
 ```rust
 struct OutputState {
@@ -866,109 +467,73 @@ struct OutputState {
     scale: f32,
     panel: PanelState,
     notch: NotchState,
-    dock: DockState,
 }
 ```
 
-E:
+O módulo ativo deve ser associado ao contexto de output adequado quando necessário.
 
-```rust
-struct ShellState {
-    outputs: HashMap<OutputId, OutputState>,
-    focused_output: Option<OutputId>,
-}
-```
-
-Não usar um único estado global implícito para posição/escala do monitor.
+Não usar estado global implícito para escala, posição ou monitor ativo.
 
 ---
 
-# 21. Performance
+# 15. Performance e lifecycle
 
-Ambxst utiliza loading condicional para diversas views e inclusive diferencia inicialização de serviços críticos e não críticos.
-
-Preservar a estratégia:
+Os crates são compilados no binário, mas seus estados e recursos podem ser inicializados de forma lazy.
 
 ```text
 startup
 ├── compositor
 ├── config
 ├── outputs
-├── panel
+├── panel/notch host
 └── essential services
 
 lazy
-├── settings
-├── dashboard pages
-├── wallpaper browser
-├── screenshot UI
-└── heavy tools
+├── launcher index
+├── calendar data
+├── player expanded UI
+├── theme editor
+├── resources sampling
+└── settings UI
 ```
 
-Não inicializar tudo no startup apenas porque Rust permite.
-
-A shell deve permanecer event-driven.
+Um módulo fechado não deve manter trabalho pesado desnecessário apenas porque seu código está linkado ao executável.
 
 ---
 
-# 22. Workspace Rust proposto
+# 16. Workspace Rust
 
 ```text
-shell/
+luna/
 ├── Cargo.toml
-│
-├── crates/
-│   ├── shell-core/
-│   │   ├── state/
-│   │   ├── events/
-│   │   ├── commands/
-│   │   └── ports/
-│   │
-│   ├── shell-platform/
-│   │   ├── surfaces.rs
-│   │   ├── outputs.rs
-│   │   └── geometry.rs
-│   │
-│   ├── shell-hyprland/
-│   │   ├── ipc.rs
-│   │   ├── events.rs
-│   │   └── commands.rs
-│   │
-│   ├── shell-linux/
-│   │   ├── audio/
-│   │   ├── network/
-│   │   ├── bluetooth/
-│   │   ├── power/
-│   │   ├── notifications/
-│   │   └── media/
-│   │
-│   ├── shell-config/
-│   │
-│   ├── shell-theme/
-│   │
-│   ├── shell-ui/
-│   │   ├── primitives/
-│   │   ├── components/
-│   │   └── features/
-│   │
-│   ├── shell-ui-gpui/
-│   │   ├── platform/
-│   │   ├── surfaces/
-│   │   └── renderer/
-│   │
-│   └── shell-app/
-│       └── main.rs
+└── crates/
+    ├── shell-core/
+    ├── shell-platform/
+    ├── shell-hyprland/
+    ├── shell-linux/
+    ├── shell-config/
+    ├── shell-theme/
+    ├── shell-ui-gpui/
+    ├── modules/
+    │   ├── launcher/
+    │   ├── calendar/
+    │   ├── player/
+    │   ├── theme/
+    │   ├── resources/
+    │   ├── clock/
+    │   └── settings/
+    └── shell-app/
 ```
 
-Evitar criar dezenas de crates pequenos sem necessidade.
+Crates de infraestrutura representam boundaries técnicas. Crates de módulos representam boundaries de produto/feature.
 
-Essas divisões representam **boundaries arquiteturais**; inicialmente alguns módulos podem coexistir no mesmo crate.
+Não criar um crate por arquivo ou por primitive visual.
 
 ---
 
-# 23. Fluxo de dados
+# 17. Fluxo de dados
 
-Usar fluxo unidirecional sempre que razoável:
+Eventos:
 
 ```text
 Linux / Hyprland event
@@ -977,92 +542,73 @@ Adapter
         ↓
 Domain Event
         ↓
-Application
+Application State
         ↓
-ShellState
-        ↓
-GPUI
+Module / Notch UI
 ```
 
-Comandos seguem sentido oposto:
+Comandos:
 
 ```text
 User interaction
        ↓
-UI Intent
+Module intent
        ↓
-Application Command
+Application command
        ↓
 Port
        ↓
-Linux / Hyprland Adapter
+Linux / Hyprland adapter
 ```
 
-Widgets não devem conhecer detalhes de infraestrutura.
+---
+
+# 18. Invariantes
+
+1. GPUI é substituível.
+2. Hyprland é adapter, não domínio.
+3. Nenhum módulo executa comandos Linux/Hyprland diretamente a partir de widgets.
+4. Config persistente e runtime state são conceitos diferentes.
+5. Cada output possui estado explícito.
+6. Wayland surface semantics ficam fora dos módulos.
+7. Design tokens ficam centralizados.
+8. **Cada feature module inicial é um crate individual.**
+9. **O Notch é o host/casca; módulos são conteúdo independente.**
+10. `shell-ui-gpui` não depende de crates concretos de módulos.
+11. `shell-app` registra os módulos no host.
+12. Serviços atualizam estado; módulos observam/acionam ports.
+13. Crates individuais não implicam processos individuais.
+14. Não construir um toolkit próprio prematuramente.
 
 ---
 
-# 24. Invariantes do projeto
-
-1. **GPUI é substituível.**
-2. **Hyprland é um adapter, não o domínio.**
-3. **Nenhum widget executa comandos Linux diretamente.**
-4. **Config persistente e runtime state são conceitos diferentes.**
-5. **Cada monitor possui estado explícito.**
-6. **Wayland surface semantics ficam fora dos widgets.**
-7. **Design tokens ficam centralizados.**
-8. **Features complexas são compostas por primitives reutilizáveis.**
-9. **Serviços atualizam o estado; UI observa o estado.**
-10. **Não construir um toolkit próprio prematuramente.**
-
----
-
-# 25. Anti-patterns
+# 19. Anti-patterns
 
 Evitar:
 
 ```text
 GPUI types no core
-
-Hyprland IPC dentro de components
-
+Hyprland IPC dentro de módulos
 Command::new() espalhado pela UI
-
-um GlobalState gigante contendo tudo
-
-widgets acessando serviços arbitrariamente
-
+raw D-Bus dentro de widgets
 config e runtime state misturados
-
-uma abstraction layer genérica para Button/Div/Flex
-só para uma futura migração do GPUI
-
-polling onde existe event/subscription
-
-um processo independente para cada utility
-
-uma crate para cada arquivo
-
+módulos controlando Wayland surfaces
+Notch importando cada módulo concreto diretamente
+um processo independente para cada módulo
+uma crate para cada arquivo ou primitive
 copiar a arquitetura QML literalmente
 ```
 
 ---
 
-# 26. Roadmap inicial
+# 20. Roadmap inicial
 
 ## PoC 1 — Layer Shell
 
-Objetivo:
+Validar GPUI + Wayland:
 
 ```text
-abrir uma surface GPUI no Hyprland
-```
-
-Validar:
-
-```text
-Layer::Top
-Layer::Overlay
+Top/Overlay
 anchors
 exclusive zone
 transparency
@@ -1071,147 +617,81 @@ multi-monitor
 fractional scaling
 ```
 
----
+## PoC 2 — Notch host
 
-## PoC 2 — Panel
-
-Criar:
-
-```text
-[ workspaces ]                 [ clock | volume | network ]
-```
-
-Consumir estado fake inicialmente.
-
----
-
-## PoC 3 — Hyprland
-
-Adicionar adapter real.
-
-Mostrar:
-
-```text
-workspaces
-focused workspace
-focused window
-fullscreen
-focused monitor
-```
-
-Tudo event-driven.
-
----
-
-## PoC 4 — Notch
-
-Implementar somente:
+Implementar a casca sem feature complexa:
 
 ```text
 Idle
-     ↓ click
-Launcher
-```
-
-Validar:
-
-```text
-custom geometry
-width animation
-height animation
-concave corners
-input region
+Module placeholder
+resize
+animation
 focus
 click outside
 ```
 
-Este PoC decide se GPUI atende o nível visual esperado.
+## PoC 3 — Launcher crate
 
----
+Usar `luna-module-launcher` como primeira prova real da arquitetura:
+
+```text
+shell-app registers launcher
+        ↓
+Notch mounts launcher
+        ↓
+launcher renders content
+        ↓
+Notch resizes around it
+```
+
+## PoC 4 — Hyprland adapter
+
+Adicionar estado real de compositor sem expor Hyprland aos módulos.
 
 ## PoC 5 — Linux services
 
 Começar por:
 
 ```text
+MPRIS
 Audio
 Battery
 Network
-MPRIS
+System resources
 ```
 
-A UI não deve saber qual backend implementa cada serviço.
+## PoC 6 — Initial module set
 
----
-
-## PoC 6 — Shell MVP
+Integrar progressivamente:
 
 ```text
-Panel
-Notch
 Launcher
-Notifications
-OSD
-Audio
-Network
-Bluetooth
-Battery
-MPRIS
-Hyprland workspaces
-```
-
-Só depois considerar:
-
-```text
-Dock
-Dashboard
-Overview
-Lockscreen
-Desktop icons
-Screenshot
-Screen recording
-AI sidebar
-Theme editor
+Clock
+Player
+Calendar
+Resources
+Settings
+Theme
 ```
 
 ---
 
-# 27. Decisão estratégica
+# 21. Decisão estratégica
 
-A referência arquitetural correta a extrair do Ambxst não é:
+A arquitetura não é "reescrever Ambxst em Rust".
 
-```text
-“reescrever Ambxst em Rust”
-```
-
-É:
+É extrair os conceitos úteis e reinterpretá-los com boundaries explícitas:
 
 ```text
-Ambxst
-    ↓ extrair conceitos
-
-composition root
-per-output UI
-unified surfaces
-reactive state
-persistent config
-system services
-reusable primitives
-centralized visibility/focus
-feature modules
-dynamic notch
-
-    ↓ reinterpretar
-
 Rust core
-+ GPUI presentation
++ GPUI host
++ dynamic Notch
++ individual module crates
 + Wayland semantics
 + Hyprland adapter
 + Linux service adapters
 ```
 
-O projeto deve preservar a **experiência integrada de desktop shell** do Ambxst enquanto estabelece boundaries mais fortes entre UI, domínio, compositor e sistema operacional.
+O Notch fornece uma experiência visual integrada. Os módulos permanecem independentes como unidades de feature e compilação.
 
-GPUI deve acelerar a primeira implementação.
-
-Ele não deve definir a arquitetura da shell.
+GPUI acelera a primeira implementação, mas não define a arquitetura da shell.
