@@ -14,10 +14,40 @@ use shell_platform::{
     OutputRegistry, OutputStateError, OutputTransition, SurfaceMetrics, SurfaceTopology,
 };
 use shell_theme::DesignTokens;
-use shell_ui_gpui::GpuiFrontend;
+use shell_ui_gpui::{GpuiFrontend, ModuleRegistry};
 use tracing_subscriber::{EnvFilter, fmt, layer::SubscriberExt, util::SubscriberInitExt};
 
 static LOGGING_INITIALIZED: OnceLock<()> = OnceLock::new();
+
+/// Compose the initial statically linked module set.
+///
+/// This is intentionally in `shell-app`: the UI host knows only the contract
+/// and the application is the sole place that knows concrete module crates.
+pub fn build_module_registry() -> Result<ModuleRegistry, PlatformError> {
+    let mut registry = ModuleRegistry::new();
+    registry
+        .register(luna_module_launcher::LauncherModule)
+        .map_err(|error| PlatformError::initialization(error.to_string()))?;
+    registry
+        .register(luna_module_calendar::CalendarModule)
+        .map_err(|error| PlatformError::initialization(error.to_string()))?;
+    registry
+        .register(luna_module_player::PlayerModule)
+        .map_err(|error| PlatformError::initialization(error.to_string()))?;
+    registry
+        .register(luna_module_theme::ThemeModule)
+        .map_err(|error| PlatformError::initialization(error.to_string()))?;
+    registry
+        .register(luna_module_resources::ResourcesModule)
+        .map_err(|error| PlatformError::initialization(error.to_string()))?;
+    registry
+        .register(luna_module_clock::ClockModule)
+        .map_err(|error| PlatformError::initialization(error.to_string()))?;
+    registry
+        .register(luna_module_settings::SettingsModule)
+        .map_err(|error| PlatformError::initialization(error.to_string()))?;
+    Ok(registry)
+}
 
 /// Application-owned asynchronous command path used by feature surfaces.
 ///

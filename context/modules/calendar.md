@@ -6,7 +6,7 @@
 
 ## Purpose
 
-Provide date/calendar information inside the Notch, with room for future agenda integration without coupling the shell to a specific calendar provider.
+Provide date/calendar information inside the Notch, with room for future agenda integration (SQLite) without coupling the shell to a specific calendar provider.
 
 ## Responsibilities
 

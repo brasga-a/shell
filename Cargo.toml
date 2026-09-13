@@ -8,6 +8,7 @@ members = [
     "crates/shell-theme",
     "crates/shell-ui-gpui",
     "crates/shell-app",
+    "crates/modules/*",
 ]
 resolver = "3"
 
@@ -25,6 +26,13 @@ shell-linux = { path = "crates/shell-linux" }
 shell-config = { path = "crates/shell-config" }
 shell-theme = { path = "crates/shell-theme" }
 shell-ui-gpui = { path = "crates/shell-ui-gpui" }
+luna-module-launcher = { path = "crates/modules/launcher" }
+luna-module-calendar = { path = "crates/modules/calendar" }
+luna-module-player = { path = "crates/modules/player" }
+luna-module-theme = { path = "crates/modules/theme" }
+luna-module-resources = { path = "crates/modules/resources" }
+luna-module-clock = { path = "crates/modules/clock" }
+luna-module-settings = { path = "crates/modules/settings" }
 
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
