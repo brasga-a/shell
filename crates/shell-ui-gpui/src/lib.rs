@@ -574,6 +574,8 @@ struct NotchView {
     config: NotchConfig,
     tokens: DesignTokens,
     state: NotchState,
+    clock: SharedString,
+    query: String,
     focus_manager: FocusManager,
     focus_handle: FocusHandle,
     animation: NotchAnimation,
@@ -583,10 +585,28 @@ struct NotchView {
 impl NotchView {
     fn new(config: NotchConfig, tokens: DesignTokens, cx: &mut Context<Self>) -> Self {
         let initial_geometry = NotchGeometry::for_state(&config, NotchState::Idle);
+        let task = cx.spawn(async move |this, cx| {
+            loop {
+                if this
+                    .update(cx, |view: &mut NotchView, cx| {
+                        view.clock = local_clock();
+                        cx.notify();
+                    })
+                    .is_err()
+                {
+                    return;
+                }
+                cx.background_executor().timer(Duration::from_secs(1)).await;
+            }
+        });
+        task.detach();
+
         Self {
             config,
             tokens,
             state: NotchState::Idle,
+            clock: local_clock(),
+            query: String::new(),
             focus_manager: FocusManager::default(),
             focus_handle: cx.focus_handle(),
             animation: NotchAnimation::new(initial_geometry),
@@ -603,6 +623,7 @@ impl NotchView {
         match state {
             NotchState::Idle => {
                 self.focus_manager.dismiss_notch();
+                self.query.clear();
                 window.blur(cx);
             }
             NotchState::Launcher => {
@@ -694,6 +715,8 @@ impl Render for NotchView {
         let geometry_for_click = geometry;
         let tokens = self.tokens.clone();
         let paint_tokens = tokens.clone();
+        let clock = self.clock.clone();
+        let query = self.query.clone();
 
         div()
             .id("shell-notch-root")
@@ -719,6 +742,18 @@ impl Render for NotchView {
             .on_key_down(cx.listener(|view, event: &KeyDownEvent, window, cx| {
                 if event.keystroke.key == "escape" && view.focus_manager.escape() {
                     view.set_state(NotchState::Idle, window, cx);
+                } else if view.focus_manager.owns_keyboard() {
+                    let changed = if event.keystroke.key == "backspace" {
+                        view.query.pop().is_some()
+                    } else if let Some(character) = &event.keystroke.key_char {
+                        view.query.push_str(character);
+                        true
+                    } else {
+                        false
+                    };
+                    if changed {
+                        cx.notify();
+                    }
                 }
             }))
             .child(
@@ -743,77 +778,185 @@ impl Render for NotchView {
                         .size_full(),
                     )
                     .when(state == NotchState::Launcher, |element| {
-                        element.child(
-                            div()
-                                .absolute()
-                                .top(px(geometry.corner_size + 56.0))
-                                .left_0()
-                                .w_full()
-                                .flex()
-                                .flex_col()
-                                .items_center()
-                                .gap(px(tokens.spacing.sm as f32))
-                                .text_color(rgb(tokens.colors.foreground))
-                                .text_size(px(tokens.typography.title_size as f32))
-                                .font_weight(FontWeight::BOLD)
-                                .child("Launcher")
-                                .child(
-                                    div()
-                                        .text_size(px(tokens.typography.label_size as f32))
-                                        .font_weight(FontWeight::NORMAL)
-                                        .child("Press Escape or click outside to dismiss"),
-                                ),
-                        )
+                        element.child(launcher_content(
+                            &query,
+                            &tokens,
+                            geometry.width,
+                            geometry.height,
+                        ))
                     }),
             )
             .when(state == NotchState::Idle, |element| {
-                element.child(
-                    div()
-                        .absolute()
-                        .top(px(geometry.height / 2.0 - 4.0))
-                        .left_0()
-                        .w_full()
-                        .h(px(8.0))
-                        .flex()
-                        .justify_center()
-                        .child(
-                            div()
-                                .w(px(36.0))
-                                .h(px(4.0))
-                                .rounded(px(2.0))
-                                .bg(rgb(tokens.colors.foreground)),
-                        ),
-                )
+                element.child(idle_content(&clock, &tokens))
             })
     }
+}
+
+const LAUNCHER_ITEMS: &[(&str, &str, &str)] = &[
+    (
+        "◉",
+        "About Xfce",
+        "Information about the Xfce Desktop Environment",
+    ),
+    (
+        "▣",
+        "Advanced Network Configuration",
+        "Manage and change network connection settings",
+    ),
+    ("△", "Alacritty", "Terminal"),
+    (
+        "◌",
+        "AsusCtlTray",
+        "A tray icon to switch asusctl profiles on the fly",
+    ),
+    (
+        "✣",
+        "auto-cpufreq",
+        "Automatic CPU frequency and power optimizer",
+    ),
+    (
+        "◈",
+        "Avahi SSH Server Browser",
+        "Browse for Zeroconf-enabled SSH Servers",
+    ),
+];
+
+fn idle_content(clock: &SharedString, tokens: &DesignTokens) -> impl IntoElement {
+    div()
+        .absolute()
+        .top_0()
+        .left_0()
+        .w_full()
+        .h_full()
+        .flex()
+        .items_center()
+        .justify_center()
+        .gap(px(tokens.spacing.sm as f32))
+        .text_color(rgb(tokens.colors.foreground))
+        .text_size(px(tokens.typography.label_size as f32))
+        .child(
+            div()
+                .text_size(px(tokens.typography.label_size as f32 - 2.0))
+                .child("▮▮▮"),
+        )
+        .child(clock.clone())
+}
+
+fn launcher_content(
+    query: &str,
+    tokens: &DesignTokens,
+    width: f32,
+    height: f32,
+) -> impl IntoElement {
+    let query_lower = query.to_lowercase();
+    let rows = LAUNCHER_ITEMS
+        .iter()
+        .filter(|(_, name, description)| {
+            query_lower.is_empty()
+                || name.to_lowercase().contains(&query_lower)
+                || description.to_lowercase().contains(&query_lower)
+        })
+        .map(|(icon, name, description)| {
+            div()
+                .w_full()
+                .h(px(44.0))
+                .px(px(tokens.spacing.sm as f32))
+                .rounded(px(tokens.radius.sm as f32))
+                .flex()
+                .items_center()
+                .gap(px(tokens.spacing.sm as f32))
+                .bg(rgba(0x242424e8))
+                .text_color(rgb(tokens.colors.foreground))
+                .child(
+                    div()
+                        .w(px(28.0))
+                        .h(px(28.0))
+                        .rounded(px(tokens.radius.sm as f32))
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .bg(rgba(0x3b3b3bf0))
+                        .text_size(px(tokens.typography.title_size as f32 - 2.0))
+                        .child(*icon),
+                )
+                .child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .gap(px(1.0))
+                        .child(
+                            div()
+                                .text_size(px(tokens.typography.body_size as f32))
+                                .font_weight(FontWeight::BOLD)
+                                .child(*name),
+                        )
+                        .child(
+                            div()
+                                .text_size(px(tokens.typography.label_size as f32 - 1.0))
+                                .text_color(rgba(0xaaa6a6e6))
+                                .child(*description),
+                        ),
+                )
+        });
+
+    div()
+        .absolute()
+        .top_0()
+        .left_0()
+        .w(px(width))
+        .h(px(height))
+        .p(px(tokens.spacing.md as f32))
+        .flex()
+        .flex_col()
+        .gap(px(tokens.spacing.sm as f32))
+        .text_color(rgb(tokens.colors.foreground))
+        .child(
+            div()
+                .w_full()
+                .h(px(40.0))
+                .px(px(tokens.spacing.sm as f32))
+                .flex()
+                .items_center()
+                .gap(px(tokens.spacing.sm as f32))
+                .border_b(px(1.0))
+                .border_color(rgba(0x8b8b8b66))
+                .text_size(px(tokens.typography.body_size as f32))
+                .child("⌕")
+                .child(if query.is_empty() {
+                    "Search...".to_string()
+                } else {
+                    query.to_owned()
+                }),
+        )
+        .child(div().flex().flex_col().gap(px(2.0)).children(rows))
 }
 
 fn build_notch_path(geometry: NotchGeometry) -> Option<Path<Pixels>> {
     let width = px(geometry.width);
     let height = px(geometry.height);
-    let corner = px(geometry.corner_size);
-    let radius = px(geometry.radius.min(geometry.height / 2.0));
+    let radius_value = geometry
+        .radius
+        .max(geometry.corner_size)
+        .min(geometry.width / 2.0)
+        .min(geometry.height / 2.0);
+    let radius = px(radius_value);
     let mut builder = PathBuilder::fill();
 
     match geometry.edge {
         shell_core::NotchEdge::Top => {
-            builder.move_to(point(corner, px(0.)));
-            builder.line_to(point(width - corner, px(0.)));
-            builder.curve_to(point(width, corner), point(width, px(0.)));
+            builder.move_to(point(px(0.), px(0.)));
+            builder.line_to(point(width, px(0.)));
             builder.line_to(point(width, height - radius));
             builder.curve_to(point(width - radius, height), point(width, height));
             builder.line_to(point(radius, height));
             builder.curve_to(point(px(0.), height - radius), point(px(0.), height));
-            builder.line_to(point(px(0.), corner));
-            builder.curve_to(point(corner, px(0.)), point(px(0.), px(0.)));
+            builder.line_to(point(px(0.), px(0.)));
         }
         shell_core::NotchEdge::Bottom => {
             builder.move_to(point(radius, px(0.)));
             builder.curve_to(point(px(0.), radius), point(px(0.), px(0.)));
-            builder.line_to(point(px(0.), height - corner));
-            builder.curve_to(point(corner, height), point(px(0.), height));
-            builder.line_to(point(width - corner, height));
-            builder.curve_to(point(width, height - corner), point(width, height));
+            builder.line_to(point(px(0.), height));
+            builder.line_to(point(width, height));
             builder.line_to(point(width, radius));
             builder.curve_to(point(width - radius, px(0.)), point(width, px(0.)));
         }

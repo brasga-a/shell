@@ -97,28 +97,44 @@ impl NotchGeometry {
         let middle_width = self.width - 2.0 * corner;
         let mut rects = Vec::with_capacity(3);
 
-        if middle_width > 0.0 {
-            rects.push(Rect::from_xywh(
-                bounds.origin.x + corner,
-                bounds.origin.y,
-                middle_width,
-                self.height,
-            ));
-        }
-
-        let side_height = (self.height - corner).max(0.0);
-        if corner > 0.0 && side_height > 0.0 {
-            let y = match self.edge {
-                NotchEdge::Top => bounds.origin.y + corner,
-                NotchEdge::Bottom => bounds.origin.y,
-            };
-            rects.push(Rect::from_xywh(bounds.origin.x, y, corner, side_height));
-            rects.push(Rect::from_xywh(
-                bounds.right() - corner,
-                y,
-                corner,
-                side_height,
-            ));
+        let body_height = (self.height - corner).max(0.0);
+        match self.edge {
+            NotchEdge::Top => {
+                if body_height > 0.0 {
+                    rects.push(Rect::from_xywh(
+                        bounds.origin.x,
+                        bounds.origin.y,
+                        self.width,
+                        body_height,
+                    ));
+                }
+                if middle_width > 0.0 && corner > 0.0 {
+                    rects.push(Rect::from_xywh(
+                        bounds.origin.x + corner,
+                        bounds.bottom() - corner,
+                        middle_width,
+                        corner,
+                    ));
+                }
+            }
+            NotchEdge::Bottom => {
+                if middle_width > 0.0 && corner > 0.0 {
+                    rects.push(Rect::from_xywh(
+                        bounds.origin.x + corner,
+                        bounds.origin.y,
+                        middle_width,
+                        corner,
+                    ));
+                }
+                if body_height > 0.0 {
+                    rects.push(Rect::from_xywh(
+                        bounds.origin.x,
+                        bounds.origin.y + corner,
+                        self.width,
+                        body_height,
+                    ));
+                }
+            }
         }
 
         rects
@@ -263,9 +279,9 @@ mod tests {
         let geometry = NotchGeometry::new(420.0, 120.0, 16.0, 32.0, NotchEdge::Top);
         let rects = geometry.input_rects(1920.0, 1080.0);
 
-        assert_eq!(rects.len(), 3);
-        assert!(!geometry.contains(Point::new(750.0, 0.0), 1920.0, 1080.0));
-        assert!(geometry.contains(Point::new(750.0, 50.0), 1920.0, 1080.0));
+        assert_eq!(rects.len(), 2);
+        assert!(!geometry.contains(Point::new(750.0, 119.0), 1920.0, 1080.0));
+        assert!(geometry.contains(Point::new(960.0, 119.0), 1920.0, 1080.0));
     }
 
     #[test]

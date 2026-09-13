@@ -243,12 +243,12 @@ impl Default for NotchConfig {
     fn default() -> Self {
         Self {
             enabled: true,
-            collapsed_width: 180,
-            width: 420,
+            collapsed_width: 144,
+            width: 520,
             collapsed_height: 32,
-            expanded_height: 420,
-            corner_radius: 16,
-            corner_size: 32,
+            expanded_height: 360,
+            corner_radius: 24,
+            corner_size: 24,
             edge: BarPosition::Top,
             animation: AnimationConfig::default(),
         }
