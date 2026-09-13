@@ -236,9 +236,13 @@ modules_right = [
 ```toml
 enabled = true
 
+collapsed_width = 180
 width = 420
 collapsed_height = 32
 expanded_height = 420
+corner_radius = 16
+corner_size = 32
+edge = "top"
 
 [animation]
 enabled = true

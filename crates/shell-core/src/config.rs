@@ -229,9 +229,13 @@ impl Default for BarConfig {
 #[serde(default)]
 pub struct NotchConfig {
     pub enabled: bool,
+    pub collapsed_width: u32,
     pub width: u32,
     pub collapsed_height: u32,
     pub expanded_height: u32,
+    pub corner_radius: u32,
+    pub corner_size: u32,
+    pub edge: BarPosition,
     pub animation: AnimationConfig,
 }
 
@@ -239,9 +243,13 @@ impl Default for NotchConfig {
     fn default() -> Self {
         Self {
             enabled: true,
+            collapsed_width: 180,
             width: 420,
             collapsed_height: 32,
             expanded_height: 420,
+            corner_radius: 16,
+            corner_size: 32,
+            edge: BarPosition::Top,
             animation: AnimationConfig::default(),
         }
     }
@@ -351,9 +359,23 @@ impl ShellConfig {
                 "bar.height must be greater than zero",
             ));
         }
-        if self.notch.width == 0 || self.notch.expanded_height == 0 {
+        if self.notch.collapsed_width == 0
+            || self.notch.width == 0
+            || self.notch.collapsed_height == 0
+            || self.notch.expanded_height == 0
+        {
             return Err(ConfigError::validation(
-                "notch.width and notch.expanded_height must be greater than zero",
+                "notch widths and heights must be greater than zero",
+            ));
+        }
+        if self.notch.expanded_height < self.notch.collapsed_height {
+            return Err(ConfigError::validation(
+                "notch.expanded_height must be at least collapsed_height",
+            ));
+        }
+        if self.notch.corner_size == 0 || self.notch.corner_radius == 0 {
+            return Err(ConfigError::validation(
+                "notch.corner_size and notch.corner_radius must be greater than zero",
             ));
         }
         if self.dock.icon_size == 0 {

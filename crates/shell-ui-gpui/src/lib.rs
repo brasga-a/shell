@@ -16,15 +16,17 @@ use std::{
 
 use chrono::Local;
 use gpui::{
-    App, Bounds, Context, FocusHandle, Focusable, FontWeight, KeyBinding, KeyDownEvent, Render,
-    SharedString, Window, WindowBackgroundAppearance, WindowBounds, WindowKind, WindowOptions,
-    actions, div, layer_shell::*, point, prelude::*, px, rgb, rgba, size,
+    App, Bounds, Context, FocusHandle, Focusable, FontWeight, KeyBinding, KeyDownEvent,
+    MouseDownEvent, Path, PathBuilder, Pixels, Render, SharedString, Window,
+    WindowBackgroundAppearance, WindowBounds, WindowKind, WindowOptions, actions, canvas, div,
+    layer_shell::*, point, prelude::*, px, rgb, rgba, size,
 };
 use gpui_platform::application;
 use shell_config::{ConfigEvent, ConfigWatcher};
 use shell_core::{
     AppUsageMetrics, BarPosition, CompositorEvent, CompositorSnapshot, CompositorStateStore,
-    KeyboardModeConfig, NotchConfig, OutputId, PlatformError, ShellCommand, ShellConfig,
+    FocusManager, KeyboardModeConfig, NotchAnimation, NotchConfig, NotchGeometry, NotchState,
+    OutputId, PlatformError, Point, ShellCommand, ShellConfig,
 };
 use shell_platform::{Anchors, ShellLayer, SurfaceSpec};
 use shell_theme::DesignTokens;
@@ -43,6 +45,7 @@ struct FrontendSettings {
     width: f32,
     height: f32,
     panel_height: f32,
+    notch: NotchConfig,
 }
 
 impl Default for FrontendSettings {
@@ -53,6 +56,7 @@ impl Default for FrontendSettings {
             width: notch.width as f32,
             height: notch.expanded_height as f32,
             panel_height: shell_core::BarConfig::default().height as f32,
+            notch,
         }
     }
 }
@@ -64,6 +68,7 @@ impl FrontendSettings {
             width: config.notch.width as f32,
             height: config.notch.expanded_height as f32,
             panel_height: config.bar.height as f32,
+            notch: config.notch.clone(),
         }
     }
 }
@@ -137,6 +142,8 @@ impl GpuiFrontend {
         let initial_snapshot = initial_snapshot.unwrap_or_default();
         let debug_tokens = settings.tokens.clone();
         let debug_state_store = state_store.clone();
+        let notch_config = settings.notch.clone();
+        let notch_tokens = settings.tokens.clone();
 
         let run_result = catch_gpui_run(|| {
             application().run(move |cx: &mut App| {
@@ -285,6 +292,30 @@ impl GpuiFrontend {
                                     cx,
                                 )
                             })
+                        },
+                    );
+                    if let Err(error) = result {
+                        *startup_error_for_app.borrow_mut() = Some(error.to_string());
+                        cx.quit();
+                        return;
+                    }
+                }
+
+                if notch_config.enabled {
+                    let result = cx.open_window(
+                        WindowOptions {
+                            titlebar: None,
+                            window_bounds: Some(WindowBounds::Windowed(Bounds {
+                                origin: point(px(0.), px(0.)),
+                                size: size(px(0.), px(0.)),
+                            })),
+                            window_background: WindowBackgroundAppearance::Transparent,
+                            app_id: Some("linux-shell.notch".to_string()),
+                            kind: WindowKind::LayerShell(notch_layer_shell_options()),
+                            ..Default::default()
+                        },
+                        |_window, cx| {
+                            cx.new(|cx| NotchView::new(notch_config, notch_tokens, cx))
                         },
                     );
                     if let Err(error) = result {
@@ -527,6 +558,269 @@ fn debug_layer_shell_options() -> LayerShellOptions {
         keyboard_interactivity: KeyboardInteractivity::None,
         ..Default::default()
     }
+}
+
+fn notch_layer_shell_options() -> LayerShellOptions {
+    LayerShellOptions {
+        namespace: "linux-shell-notch".to_string(),
+        layer: Layer::Top,
+        anchor: Anchor::TOP | Anchor::BOTTOM | Anchor::LEFT | Anchor::RIGHT,
+        keyboard_interactivity: KeyboardInteractivity::OnDemand,
+        ..Default::default()
+    }
+}
+
+struct NotchView {
+    config: NotchConfig,
+    tokens: DesignTokens,
+    state: NotchState,
+    focus_manager: FocusManager,
+    focus_handle: FocusHandle,
+    animation: NotchAnimation,
+    animation_task_running: bool,
+}
+
+impl NotchView {
+    fn new(config: NotchConfig, tokens: DesignTokens, cx: &mut Context<Self>) -> Self {
+        let initial_geometry = NotchGeometry::for_state(&config, NotchState::Idle);
+        Self {
+            config,
+            tokens,
+            state: NotchState::Idle,
+            focus_manager: FocusManager::default(),
+            focus_handle: cx.focus_handle(),
+            animation: NotchAnimation::new(initial_geometry),
+            animation_task_running: false,
+        }
+    }
+
+    fn set_state(&mut self, state: NotchState, window: &mut Window, cx: &mut Context<Self>) {
+        if self.state == state && !self.animation.is_running() {
+            return;
+        }
+
+        self.state = state;
+        match state {
+            NotchState::Idle => {
+                self.focus_manager.dismiss_notch();
+                window.blur(cx);
+            }
+            NotchState::Launcher => {
+                self.focus_manager.activate_notch();
+                window.focus(&self.focus_handle, cx);
+            }
+        }
+
+        let target = NotchGeometry::for_state(&self.config, state);
+        let duration_ms = if self.config.animation.enabled {
+            self.config.animation.duration_ms
+        } else {
+            0
+        };
+        self.animation.retarget(target, duration_ms);
+        self.start_animation_task(cx);
+        cx.notify();
+    }
+
+    fn start_animation_task(&mut self, cx: &mut Context<Self>) {
+        if self.animation_task_running || !self.animation.is_running() {
+            return;
+        }
+
+        self.animation_task_running = true;
+        let task = cx.spawn(async move |this, cx| {
+            loop {
+                let running = match this.update(cx, |view: &mut NotchView, cx| {
+                    if view.animation.tick(16) {
+                        cx.notify();
+                        true
+                    } else {
+                        view.animation_task_running = false;
+                        cx.notify();
+                        false
+                    }
+                }) {
+                    Ok(running) => running,
+                    Err(_) => return,
+                };
+
+                if !running {
+                    return;
+                }
+                cx.background_executor()
+                    .timer(Duration::from_millis(16))
+                    .await;
+            }
+        });
+        task.detach();
+    }
+
+    fn surface_size(window: &Window) -> (f32, f32) {
+        let viewport = window.viewport_size();
+        (f32::from(viewport.width), f32::from(viewport.height))
+    }
+}
+
+impl Focusable for NotchView {
+    fn focus_handle(&self, _cx: &App) -> FocusHandle {
+        self.focus_handle.clone()
+    }
+}
+
+impl Render for NotchView {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let (surface_width, surface_height) = Self::surface_size(window);
+        let geometry = self.animation.current();
+        let notch_bounds = geometry.bounds(surface_width, surface_height);
+        let input_rects = if self.focus_manager.owns_modal_pointer() {
+            vec![Bounds {
+                origin: point(px(0.), px(0.)),
+                size: size(px(surface_width), px(surface_height)),
+            }]
+        } else {
+            geometry
+                .input_rects(surface_width, surface_height)
+                .into_iter()
+                .map(|rect| Bounds {
+                    origin: point(px(rect.origin.x), px(rect.origin.y)),
+                    size: size(px(rect.size.width), px(rect.size.height)),
+                })
+                .collect()
+        };
+        window.set_input_region(Some(&input_rects));
+
+        let focus_handle = self.focus_handle.clone();
+        let state = self.state;
+        let geometry_for_click = geometry;
+        let tokens = self.tokens.clone();
+        let paint_tokens = tokens.clone();
+
+        div()
+            .id("shell-notch-root")
+            .track_focus(&focus_handle)
+            .size_full()
+            .on_mouse_down(
+                gpui::MouseButton::Left,
+                cx.listener(move |view, event: &MouseDownEvent, window, cx| {
+                    let (surface_width, surface_height) = NotchView::surface_size(window);
+                    let point =
+                        Point::new(f32::from(event.position.x), f32::from(event.position.y));
+                    let inside = geometry_for_click.contains(point, surface_width, surface_height);
+
+                    if view.focus_manager.owns_modal_pointer() {
+                        if view.focus_manager.click_outside(inside) {
+                            view.set_state(NotchState::Idle, window, cx);
+                        }
+                    } else if inside {
+                        view.set_state(NotchState::Launcher, window, cx);
+                    }
+                }),
+            )
+            .on_key_down(cx.listener(|view, event: &KeyDownEvent, window, cx| {
+                if event.keystroke.key == "escape" && view.focus_manager.escape() {
+                    view.set_state(NotchState::Idle, window, cx);
+                }
+            }))
+            .child(
+                div()
+                    .absolute()
+                    .left(px(notch_bounds.origin.x))
+                    .top(px(notch_bounds.origin.y))
+                    .w(px(notch_bounds.size.width))
+                    .h(px(notch_bounds.size.height))
+                    .child(
+                        canvas(
+                            move |_, _, _| build_notch_path(geometry),
+                            move |_, path: Option<Path<Pixels>>, window, _| {
+                                if let Some(path) = path {
+                                    window.paint_path(
+                                        path,
+                                        rgba(paint_tokens.colors.background_overlay),
+                                    );
+                                }
+                            },
+                        )
+                        .size_full(),
+                    )
+                    .when(state == NotchState::Launcher, |element| {
+                        element.child(
+                            div()
+                                .absolute()
+                                .top(px(geometry.corner_size + 56.0))
+                                .left_0()
+                                .w_full()
+                                .flex()
+                                .flex_col()
+                                .items_center()
+                                .gap(px(tokens.spacing.sm as f32))
+                                .text_color(rgb(tokens.colors.foreground))
+                                .text_size(px(tokens.typography.title_size as f32))
+                                .font_weight(FontWeight::BOLD)
+                                .child("Launcher")
+                                .child(
+                                    div()
+                                        .text_size(px(tokens.typography.label_size as f32))
+                                        .font_weight(FontWeight::NORMAL)
+                                        .child("Press Escape or click outside to dismiss"),
+                                ),
+                        )
+                    }),
+            )
+            .when(state == NotchState::Idle, |element| {
+                element.child(
+                    div()
+                        .absolute()
+                        .top(px(geometry.height / 2.0 - 4.0))
+                        .left_0()
+                        .w_full()
+                        .h(px(8.0))
+                        .flex()
+                        .justify_center()
+                        .child(
+                            div()
+                                .w(px(36.0))
+                                .h(px(4.0))
+                                .rounded(px(2.0))
+                                .bg(rgb(tokens.colors.foreground)),
+                        ),
+                )
+            })
+    }
+}
+
+fn build_notch_path(geometry: NotchGeometry) -> Option<Path<Pixels>> {
+    let width = px(geometry.width);
+    let height = px(geometry.height);
+    let corner = px(geometry.corner_size);
+    let radius = px(geometry.radius.min(geometry.height / 2.0));
+    let mut builder = PathBuilder::fill();
+
+    match geometry.edge {
+        shell_core::NotchEdge::Top => {
+            builder.move_to(point(corner, px(0.)));
+            builder.line_to(point(width - corner, px(0.)));
+            builder.curve_to(point(width, corner), point(width, px(0.)));
+            builder.line_to(point(width, height - radius));
+            builder.curve_to(point(width - radius, height), point(width, height));
+            builder.line_to(point(radius, height));
+            builder.curve_to(point(px(0.), height - radius), point(px(0.), height));
+            builder.line_to(point(px(0.), corner));
+            builder.curve_to(point(corner, px(0.)), point(px(0.), px(0.)));
+        }
+        shell_core::NotchEdge::Bottom => {
+            builder.move_to(point(radius, px(0.)));
+            builder.curve_to(point(px(0.), radius), point(px(0.), px(0.)));
+            builder.line_to(point(px(0.), height - corner));
+            builder.curve_to(point(corner, height), point(px(0.), height));
+            builder.line_to(point(width - corner, height));
+            builder.curve_to(point(width, height - corner), point(width, height));
+            builder.line_to(point(width, radius));
+            builder.curve_to(point(width - radius, px(0.)), point(width, px(0.)));
+        }
+    }
+
+    builder.close();
+    builder.build().ok()
 }
 
 struct DebugMetricsView {
