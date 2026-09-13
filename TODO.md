@@ -1,4 +1,4 @@
-# TODO — Luna
+# TODO — Shell
 
 Checklist pessoal de execução. O `context/milestones.md` continua sendo o roadmap formal; este arquivo serve para organizar o trabalho do dia a dia.
 
@@ -33,7 +33,7 @@ Checklist pessoal de execução. O `context/milestones.md` continua sendo o road
 - [ ] Evitar versões incompatíveis de GPUI no mesmo workspace
 - [ ] Mapear componentes que serão usados diretamente
 - [ ] Mapear componentes que precisam de customização/fork local
-- [ ] Integrar tema Luna com tokens do GPUI Kit
+- [ ] Integrar tema Shell com tokens do GPUI Kit
 - [ ] Testar Input
 - [ ] Testar Button/IconButton
 - [ ] Testar Popover/Dialog
@@ -43,7 +43,7 @@ Checklist pessoal de execução. O `context/milestones.md` continua sendo o road
 
 ## Clock
 
-- [ ] Implementar `luna-module-clock`
+- [ ] Implementar `shell-module-clock`
 - [ ] Mostrar horário atual
 - [ ] Mostrar data
 - [ ] Suportar 12h/24h
@@ -75,7 +75,7 @@ Checklist pessoal de execução. O `context/milestones.md` continua sendo o road
 
 ## Calendar
 
-- [ ] Implementar `luna-module-calendar`
+- [ ] Implementar `shell-module-calendar`
 - [ ] Criar mini month view
 - [ ] Mostrar agenda do dia
 - [ ] Mostrar próximos eventos
@@ -91,13 +91,13 @@ Checklist pessoal de execução. O `context/milestones.md` continua sendo o road
 - [ ] Implementar Microsoft/Outlook provider
 - [ ] Implementar CalDAV/iCloud provider
 - [ ] Criar ação `Open Calendar`
-- [ ] Planejar futuro `luna-calendar` completo
+- [ ] Planejar futuro `shell-calendar` completo
 
 ## Player
 
 - [ ] Implementar `MediaPort`
 - [ ] Implementar adapter MPRIS
-- [ ] Implementar `luna-module-player`
+- [ ] Implementar `shell-module-player`
 - [ ] Mostrar player ativo
 - [ ] Mostrar título/artista/album art
 - [ ] Play/Pause
@@ -139,7 +139,7 @@ Checklist pessoal de execução. O `context/milestones.md` continua sendo o road
 
 ## Settings
 
-- [ ] Implementar `luna-module-settings`
+- [ ] Implementar `shell-module-settings`
 - [ ] General settings
 - [ ] Modules enable/disable
 - [ ] Appearance entry point
@@ -149,7 +149,7 @@ Checklist pessoal de execução. O `context/milestones.md` continua sendo o road
 - [ ] Usar config tipada
 - [ ] Implementar apply/revert
 - [ ] Mostrar erros de validação
-- [ ] Planejar futuro `luna-settings` completo
+- [ ] Planejar futuro `shell-settings` completo
 
 ## Linux services
 
@@ -172,7 +172,7 @@ Checklist pessoal de execução. O `context/milestones.md` continua sendo o road
 - [ ] Finalizar defaults
 - [ ] Finalizar validation
 - [ ] Finalizar migrations/versioning
-- [ ] Watch `$XDG_CONFIG_HOME/luna/`
+- [ ] Watch `$XDG_CONFIG_HOME/shell/`
 - [ ] Debounce de mudanças
 - [ ] Recarregar config completa inicialmente
 - [ ] Manter snapshot anterior em config inválida
@@ -182,11 +182,11 @@ Checklist pessoal de execução. O `context/milestones.md` continua sendo o road
 
 ## Apps futuros
 
-- [ ] `luna-calendar`
-- [ ] `luna-files`
-- [ ] `luna-notes`
-- [ ] `luna-settings`
-- [ ] `luna-task-manager`
+- [ ] `shell-calendar`
+- [ ] `shell-files`
+- [ ] `shell-notes`
+- [ ] `shell-settings`
+- [ ] `shell-task-manager`
 - [ ] Definir crates de domínio compartilhados entre shell modules e apps
 - [ ] Evitar duplicar storage/sync entre module e app
 

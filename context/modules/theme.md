@@ -2,11 +2,11 @@
 
 ## Crate
 
-`crates/modules/theme` → package `luna-module-theme`
+`crates/modules/theme` → package `shell-module-theme`
 
 ## Purpose
 
-Provide the user-facing theme editor and theme controls inside the Notch. This crate is distinct from `shell-theme`: `shell-theme` defines shared theme models/tokens; `luna-module-theme` is the interactive feature that edits/selects them.
+Provide the user-facing theme editor and theme controls inside the Notch. This crate is distinct from `shell-theme`: `shell-theme` defines shared theme models/tokens; `shell-module-theme` is the interactive feature that edits/selects them.
 
 ## Responsibilities
 

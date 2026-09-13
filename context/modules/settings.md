@@ -2,7 +2,7 @@
 
 ## Crate
 
-`crates/modules/settings` → package `luna-module-settings`
+`crates/modules/settings` → package `shell-module-settings`
 
 ## Purpose
 

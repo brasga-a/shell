@@ -257,13 +257,13 @@ crates/
 Packages recomendados:
 
 ```text
-luna-module-launcher
-luna-module-calendar
-luna-module-player
-luna-module-theme
-luna-module-resources
-luna-module-clock
-luna-module-settings
+shell-module-launcher
+shell-module-calendar
+shell-module-player
+shell-module-theme
+shell-module-resources
+shell-module-clock
+shell-module-settings
 ```
 
 Esses crates continuam sendo estaticamente ligados ao binário por padrão. **Crate individual não significa processo separado, plugin dinâmico ou daemon.**
@@ -397,7 +397,7 @@ icons
 
 Nenhum módulo deve espalhar magic numbers de styling sem motivo.
 
-O módulo `luna-module-theme` consome e edita esses modelos; ele não substitui `shell-theme`.
+O módulo `shell-module-theme` consome e edita esses modelos; ele não substitui `shell-theme`.
 
 ---
 
@@ -504,7 +504,7 @@ Um módulo fechado não deve manter trabalho pesado desnecessário apenas porque
 # 16. Workspace Rust
 
 ```text
-luna/
+shell/
 ├── Cargo.toml
 └── crates/
     ├── shell-core/
@@ -632,7 +632,7 @@ click outside
 
 ## PoC 3 — Launcher crate
 
-Usar `luna-module-launcher` como primeira prova real da arquitetura:
+Usar `shell-module-launcher` como primeira prova real da arquitetura:
 
 ```text
 shell-app registers launcher

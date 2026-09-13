@@ -4104,7 +4104,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "luna-module-calendar"
+name = "shell-module-calendar"
 version = "0.1.0"
 dependencies = [
  "shell-core",
@@ -4112,16 +4112,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "luna-module-clock"
-version = "0.1.0"
-dependencies = [
- "gpui",
- "shell-core",
- "shell-ui-gpui",
-]
-
-[[package]]
-name = "luna-module-launcher"
+name = "shell-module-clock"
 version = "0.1.0"
 dependencies = [
  "gpui",
@@ -4130,7 +4121,16 @@ dependencies = [
 ]
 
 [[package]]
-name = "luna-module-player"
+name = "shell-module-launcher"
+version = "0.1.0"
+dependencies = [
+ "gpui",
+ "shell-core",
+ "shell-ui-gpui",
+]
+
+[[package]]
+name = "shell-module-player"
 version = "0.1.0"
 dependencies = [
  "shell-core",
@@ -4138,7 +4138,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "luna-module-resources"
+name = "shell-module-resources"
 version = "0.1.0"
 dependencies = [
  "gpui",
@@ -4148,7 +4148,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "luna-module-settings"
+name = "shell-module-settings"
 version = "0.1.0"
 dependencies = [
  "shell-core",
@@ -4156,7 +4156,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "luna-module-theme"
+name = "shell-module-theme"
 version = "0.1.0"
 dependencies = [
  "shell-core",
@@ -6636,13 +6636,13 @@ dependencies = [
 name = "shell-app"
 version = "0.1.0"
 dependencies = [
- "luna-module-calendar",
- "luna-module-clock",
- "luna-module-launcher",
- "luna-module-player",
- "luna-module-resources",
- "luna-module-settings",
- "luna-module-theme",
+ "shell-module-calendar",
+ "shell-module-clock",
+ "shell-module-launcher",
+ "shell-module-player",
+ "shell-module-resources",
+ "shell-module-settings",
+ "shell-module-theme",
  "shell-config",
  "shell-core",
  "shell-hyprland",

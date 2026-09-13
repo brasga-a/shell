@@ -1,5 +1,5 @@
 [package]
-name = "luna-module-settings"
+name = "shell-module-settings"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

@@ -2,7 +2,7 @@
 
 ## Crate
 
-`crates/modules/calendar` → package `luna-module-calendar`
+`crates/modules/calendar` → package `shell-module-calendar`
 
 ## Purpose
 

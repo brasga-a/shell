@@ -1,6 +1,6 @@
 # milestones.md
 
-# Project Milestones — Luna Linux Shell
+# Project Milestones — Shell Linux Shell
 
 This document defines the execution roadmap for the Rust/Wayland shell.
 
@@ -334,7 +334,7 @@ basic design tokens
 initial performance baseline
 ```
 
-The panel may show clock information temporarily, but the canonical interactive Clock feature will become `luna-module-clock` in Milestone 5A.
+The panel may show clock information temporarily, but the canonical interactive Clock feature will become `shell-module-clock` in Milestone 5A.
 
 ## Completion criteria
 
@@ -455,7 +455,7 @@ Use the simplest real module to validate the crate/host boundary.
 
 ## Steps
 
-Create `luna-module-clock` with:
+Create `shell-module-clock` with:
 
 ```text
 current date/time
@@ -488,7 +488,7 @@ Validate the module architecture with keyboard input, search and application act
 
 ## Steps
 
-Implement in `luna-module-launcher`:
+Implement in `shell-module-launcher`:
 
 ```text
 .desktop discovery
@@ -585,7 +585,7 @@ Validate a module backed by a live event-driven Linux service.
 
 ## Steps
 
-Create `luna-module-player` consuming `MediaPort`:
+Create `shell-module-player` consuming `MediaPort`:
 
 ```text
 active player
@@ -614,7 +614,7 @@ Add a richer content module with local navigation state.
 
 ## Steps
 
-Create `luna-module-calendar` with:
+Create `shell-module-calendar` with:
 
 ```text
 current month
@@ -644,7 +644,7 @@ Add the initial Task Manager / Resources experience.
 
 ## Steps
 
-Create `luna-module-resources` consuming the resource metrics service:
+Create `shell-module-resources` consuming the resource metrics service:
 
 ```text
 CPU
@@ -733,7 +733,7 @@ search input
 tooltip
 ```
 
-### 9.3 — Implement `luna-module-theme`
+### 9.3 — Implement `shell-module-theme`
 
 The Theme module controls/edits the shared theme model; it does not create a second independent theme system.
 
@@ -771,7 +771,7 @@ The UI is visually consistent and the Theme module changes centralized tokens ra
 
 ## Objective
 
-Make Luna resilient and expose stable configuration through the Settings module.
+Make Shell resilient and expose stable configuration through the Settings module.
 
 ## Steps
 
@@ -794,7 +794,7 @@ watch directory
 
 Invalid reloads preserve the last valid snapshot.
 
-### 10.3 — Implement `luna-module-settings`
+### 10.3 — Implement `shell-module-settings`
 
 Settings consumes stable configuration/service capabilities to expose shell preferences.
 
@@ -876,7 +876,7 @@ Lazy initialization is allowed and encouraged where it improves startup behavior
 
 ## Objective
 
-Reach the first daily-usable Luna shell with the initial module architecture proven end-to-end.
+Reach the first daily-usable Shell shell with the initial module architecture proven end-to-end.
 
 ## Required shell infrastructure
 
@@ -899,13 +899,13 @@ theme system
 ## Required module crates
 
 ```text
-luna-module-clock
-luna-module-launcher
-luna-module-calendar
-luna-module-player
-luna-module-resources
-luna-module-theme
-luna-module-settings
+shell-module-clock
+shell-module-launcher
+shell-module-calendar
+shell-module-player
+shell-module-resources
+shell-module-theme
+shell-module-settings
 ```
 
 ## Steps

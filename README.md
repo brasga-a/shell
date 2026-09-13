@@ -1,22 +1,22 @@
-# Luna
+# Shell
 
 A modern Linux/Wayland desktop shell written primarily in Rust, built around a modular Notch interface, GPUI and GPUI Kit.
 
-> **Status:** early development. Luna is not ready to replace a production desktop environment yet.
+> **Status:** early development. Shell is not ready to replace a production desktop environment yet.
 
 [![CI](https://github.com/brasga-a/shell/actions/workflows/ci.yml/badge.svg)](https://github.com/brasga-a/shell/actions/workflows/ci.yml)
 ![Rust](https://img.shields.io/badge/Rust-2024-orange)
 ![Wayland](https://img.shields.io/badge/Wayland-native-blue)
 ![License](https://img.shields.io/badge/license-Apache--2.0-green)
 
-## What is Luna?
+## What is Shell?
 
-Luna is an experimental desktop shell for Linux/Wayland, initially targeting **Hyprland**.
+Shell is an experimental desktop shell for Linux/Wayland, initially targeting **Hyprland**.
 
 The project explores a shell where common desktop interactions are exposed through a compact, dynamic **Notch** instead of turning every system feature into a traditional application window.
 
 ```text
-                         Luna
+                         Shell
                           │
             ┌─────────────┴─────────────┐
             │                           │
@@ -75,7 +75,7 @@ GPUI and GPUI Kit are presentation dependencies. Core crates must remain indepen
 
 ## Architecture
 
-Luna follows a hexagonal architecture.
+Shell follows a hexagonal architecture.
 
 ```text
                    ┌─────────────────────┐
@@ -133,7 +133,7 @@ crates/
 
 ## The Notch
 
-The Notch is Luna's shared quick-interaction surface.
+The Notch is Shell's shared quick-interaction surface.
 
 It owns:
 
@@ -206,12 +206,12 @@ See [`context/modules/`](context/modules/) for module-specific architecture.
 
 ## Configuration
 
-Luna uses typed, modular TOML configuration.
+Shell uses typed, modular TOML configuration.
 
 Target layout:
 
 ```text
-$XDG_CONFIG_HOME/luna/
+$XDG_CONFIG_HOME/shell/
 ├── config.toml
 ├── theme.toml
 ├── keybinds.toml
@@ -254,7 +254,7 @@ The practical task list lives in [`TODO.md`](TODO.md). The architectural roadmap
 
 ## Building
 
-Luna currently targets Linux/Wayland.
+Shell currently targets Linux/Wayland.
 
 Prerequisites include a Rust toolchain and the native development libraries required by GPUI/Wayland.
 

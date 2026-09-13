@@ -2,7 +2,7 @@
 
 ## Crate
 
-`crates/modules/launcher` → package `luna-module-launcher`
+`crates/modules/launcher` → package `shell-module-launcher`
 
 ## Purpose
 
