@@ -14,15 +14,17 @@ use std::{
     time::Duration,
 };
 
+use chrono::Local;
 use gpui::{
     App, Bounds, Context, FocusHandle, Focusable, FontWeight, KeyBinding, KeyDownEvent, Render,
     SharedString, Window, WindowBackgroundAppearance, WindowBounds, WindowKind, WindowOptions,
-    actions, div, layer_shell::*, prelude::*, px, rgb, rgba, size,
+    actions, div, layer_shell::*, point, prelude::*, px, rgb, rgba, size,
 };
 use gpui_platform::application;
 use shell_config::{ConfigEvent, ConfigWatcher};
 use shell_core::{
-    BarPosition, KeyboardModeConfig, NotchConfig, OutputId, PlatformError, ShellConfig,
+    BarPosition, CompositorEvent, CompositorSnapshot, CompositorStateStore, KeyboardModeConfig,
+    NotchConfig, OutputId, PlatformError, ShellCommand, ShellConfig,
 };
 use shell_platform::{Anchors, ShellLayer, SurfaceSpec};
 use shell_theme::DesignTokens;
@@ -40,6 +42,7 @@ struct FrontendSettings {
     tokens: DesignTokens,
     width: f32,
     height: f32,
+    panel_height: f32,
 }
 
 impl Default for FrontendSettings {
@@ -49,6 +52,7 @@ impl Default for FrontendSettings {
             tokens: DesignTokens::default(),
             width: notch.width as f32,
             height: notch.expanded_height as f32,
+            panel_height: shell_core::BarConfig::default().height as f32,
         }
     }
 }
@@ -59,6 +63,7 @@ impl FrontendSettings {
             tokens: DesignTokens::from_config(&config.theme),
             width: config.notch.width as f32,
             height: config.notch.expanded_height as f32,
+            panel_height: config.bar.height as f32,
         }
     }
 }
@@ -92,6 +97,181 @@ impl GpuiFrontend {
     /// Runs the Milestone 1 interactive GPUI proof of concept.
     pub fn run_viability_app(&self) -> Result<(), PlatformError> {
         self.run_viability_app_inner(None)
+    }
+
+    /// Runs the first real shell panel.
+    ///
+    /// Compositor events and configuration events arrive through channels so
+    /// the GPUI render path remains independent from IPC and filesystem I/O.
+    pub fn run_panel_app(
+        &self,
+        initial_snapshot: Option<CompositorSnapshot>,
+        compositor_events: Option<mpsc::Receiver<CompositorEvent>>,
+        commands: mpsc::Sender<ShellCommand>,
+        state_store: CompositorStateStore,
+        watcher: Option<ConfigWatcher>,
+    ) -> Result<(), PlatformError> {
+        let startup_error = Rc::new(RefCell::new(None));
+        let startup_error_for_app = startup_error.clone();
+        let surface_spec = self.surface_spec.borrow().clone();
+        let settings = self.settings.borrow().clone();
+        let config_events = watcher.map(|watcher| {
+            let (sender, receiver) = mpsc::channel();
+            thread::spawn(move || {
+                loop {
+                    match watcher.recv_timeout(Duration::from_secs(1)) {
+                        Ok(event) => {
+                            if sender.send(event).is_err() {
+                                break;
+                            }
+                        }
+                        Err(mpsc::RecvTimeoutError::Timeout) => {}
+                        Err(mpsc::RecvTimeoutError::Disconnected) => break,
+                    }
+                }
+            });
+            receiver
+        });
+        let frontend_for_reload = self.clone();
+        let initial_snapshot = initial_snapshot.unwrap_or_default();
+
+        let run_result = catch_gpui_run(|| {
+            application().run(move |cx: &mut App| {
+                cx.bind_keys([KeyBinding::new("ctrl-q", Quit, None)]);
+                cx.on_action(|_: &Quit, cx| cx.quit());
+
+                let result = cx.open_window(
+                    WindowOptions {
+                        titlebar: None,
+                        window_bounds: Some(WindowBounds::Windowed(Bounds {
+                            origin: point(px(0.), px(0.)),
+                            size: size(px(0.), px(settings.panel_height)),
+                        })),
+                        window_background: WindowBackgroundAppearance::Transparent,
+                        app_id: Some("linux-shell.panel".to_string()),
+                        kind: WindowKind::LayerShell(layer_shell_options(
+                            &surface_spec,
+                            "linux-shell-panel",
+                        )),
+                        ..Default::default()
+                    },
+                    |_window, cx| {
+                        let config_events = config_events;
+                        let compositor_events = compositor_events;
+                        let frontend_for_reload = frontend_for_reload.clone();
+                        let state_store = state_store.clone();
+                        cx.new(|cx| {
+                            let view = PanelView::new(
+                                initial_snapshot,
+                                settings.tokens.clone(),
+                                commands,
+                                cx,
+                            );
+
+                            if let Some(receiver) = config_events {
+                                let task = cx.spawn(async move |this, cx| {
+                                    loop {
+                                        while let Ok(event) = receiver.try_recv() {
+                                            match event {
+                                                ConfigEvent::Changed(change) => {
+                                                    frontend_for_reload.prepare(&change.snapshot);
+                                                    let tokens = DesignTokens::from_config(
+                                                        &change.snapshot.theme,
+                                                    );
+                                                    let status = format!(
+                                                        "config reload: applied {} file(s) in {} ms",
+                                                        change.paths.len(),
+                                                        change.duration_ms
+                                                    );
+                                                    if this
+                                                        .update(cx, |view: &mut PanelView, cx| {
+                                                            view.tokens = tokens;
+                                                            view.status = status.into();
+                                                            cx.notify();
+                                                        })
+                                                        .is_err()
+                                                    {
+                                                        return;
+                                                    }
+                                                }
+                                                ConfigEvent::Rejected(rejected) => {
+                                                    let status = format!(
+                                                        "config reload: rejected {} file(s): {}",
+                                                        rejected.paths.len(),
+                                                        rejected.error
+                                                    );
+                                                    if this
+                                                        .update(cx, |view: &mut PanelView, cx| {
+                                                            view.status = status.into();
+                                                            cx.notify();
+                                                        })
+                                                        .is_err()
+                                                    {
+                                                        return;
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        cx.background_executor()
+                                            .timer(Duration::from_millis(100))
+                                            .await;
+                                    }
+                                });
+                                task.detach();
+                            }
+
+                            if let Some(receiver) = compositor_events {
+                                let state_store = state_store.clone();
+                                let task = cx.spawn(async move |this, cx| {
+                                    loop {
+                                        while let Ok(event) = receiver.try_recv() {
+                                            let snapshot = event.snapshot;
+                                            state_store.replace(snapshot.clone());
+                                            if this
+                                                .update(cx, |view: &mut PanelView, cx| {
+                                                    view.snapshot = snapshot;
+                                                    view.status = "compositor: event-driven".into();
+                                                    cx.notify();
+                                                })
+                                                .is_err()
+                                            {
+                                                return;
+                                            }
+                                        }
+                                        cx.background_executor()
+                                            .timer(Duration::from_millis(50))
+                                            .await;
+                                    }
+                                });
+                                task.detach();
+                            }
+
+                            view
+                        })
+                    },
+                );
+
+                if let Err(error) = result {
+                    *startup_error_for_app.borrow_mut() = Some(error.to_string());
+                    cx.quit();
+                    return;
+                }
+
+                cx.activate(true);
+            });
+        });
+
+        if let Err(payload) = run_result {
+            return Err(window_initialization_error(format!(
+                "GPUI/Wayland panel: {}",
+                panic_message(payload)
+            )));
+        }
+
+        startup_error
+            .borrow_mut()
+            .take()
+            .map_or(Ok(()), |message| Err(window_initialization_error(message)))
     }
 
     /// Runs the viability surface while consuming debounced configuration
@@ -143,7 +323,10 @@ impl GpuiFrontend {
                         ))),
                         window_background: WindowBackgroundAppearance::Transparent,
                         app_id: Some("linux-shell.gpui-viability".to_string()),
-                        kind: WindowKind::LayerShell(layer_shell_options(&surface_spec)),
+                        kind: WindowKind::LayerShell(layer_shell_options(
+                            &surface_spec,
+                            "linux-shell-milestone-1",
+                        )),
                         ..Default::default()
                     },
                     |window, cx| {
@@ -264,7 +447,7 @@ impl Default for GpuiFrontend {
     }
 }
 
-fn layer_shell_options(spec: &SurfaceSpec) -> LayerShellOptions {
+fn layer_shell_options(spec: &SurfaceSpec, namespace: &str) -> LayerShellOptions {
     let mut anchor = Anchor::empty();
     if spec.anchors.top {
         anchor |= Anchor::TOP;
@@ -280,7 +463,7 @@ fn layer_shell_options(spec: &SurfaceSpec) -> LayerShellOptions {
     }
 
     LayerShellOptions {
-        namespace: "linux-shell-milestone-1".to_string(),
+        namespace: namespace.to_string(),
         layer: match spec.layer {
             ShellLayer::Background => Layer::Background,
             ShellLayer::Bottom => Layer::Bottom,
@@ -296,6 +479,128 @@ fn layer_shell_options(spec: &SurfaceSpec) -> LayerShellOptions {
         },
         ..Default::default()
     }
+}
+
+struct PanelView {
+    snapshot: CompositorSnapshot,
+    tokens: DesignTokens,
+    clock: SharedString,
+    status: SharedString,
+    commands: mpsc::Sender<ShellCommand>,
+}
+
+impl PanelView {
+    fn new(
+        snapshot: CompositorSnapshot,
+        tokens: DesignTokens,
+        commands: mpsc::Sender<ShellCommand>,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        let task = cx.spawn(async move |this, cx| {
+            loop {
+                let clock = local_clock();
+                if this
+                    .update(cx, |view: &mut PanelView, cx| {
+                        view.clock = clock;
+                        cx.notify();
+                    })
+                    .is_err()
+                {
+                    return;
+                }
+                cx.background_executor().timer(Duration::from_secs(1)).await;
+            }
+        });
+        task.detach();
+
+        Self {
+            snapshot,
+            tokens,
+            clock: local_clock(),
+            status: "compositor: waiting for events".into(),
+            commands,
+        }
+    }
+}
+
+impl Render for PanelView {
+    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+        let tokens = self.tokens.clone();
+        let focused_workspace = self.snapshot.focused_workspace;
+        let commands = self.commands.clone();
+
+        let workspaces = self.snapshot.workspaces.iter().map(move |workspace| {
+            let workspace_id = workspace.id;
+            let focused = workspace.active || Some(workspace_id) == focused_workspace;
+            let label = workspace
+                .name
+                .clone()
+                .unwrap_or_else(|| workspace_id.to_string());
+            let mut button = div()
+                .id(format!("workspace-{workspace_id}"))
+                .px(px(tokens.spacing.md as f32))
+                .py(px(tokens.spacing.sm as f32))
+                .rounded(px(tokens.radius.sm as f32))
+                .text_size(px(tokens.typography.label_size as f32))
+                .child(label);
+
+            if focused {
+                button = button
+                    .bg(rgb(tokens.colors.foreground))
+                    .text_color(rgb(tokens.colors.background));
+            } else {
+                button = button.text_color(rgb(tokens.colors.foreground));
+            }
+
+            let commands = commands.clone();
+            button.on_mouse_down(gpui::MouseButton::Left, move |_event, _window, _cx| {
+                if let Err(error) = commands.send(ShellCommand::FocusWorkspace(workspace_id)) {
+                    tracing::warn!(%error, ?workspace_id, "could not enqueue workspace focus command");
+                }
+            })
+        });
+
+        div()
+            .id("shell-panel-root")
+            .size_full()
+            .px(px(tokens.spacing.md as f32))
+            .flex()
+            .items_center()
+            .gap(px(tokens.spacing.md as f32))
+            .bg(rgba(tokens.colors.background_overlay))
+            .text_color(rgb(tokens.colors.foreground))
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(tokens.spacing.sm as f32))
+                    .flex_1()
+                    .children(workspaces),
+            )
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .flex_1()
+                    .text_size(px(tokens.typography.title_size as f32))
+                    .font_weight(FontWeight::BOLD)
+                    .child(self.clock.clone()),
+            )
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .justify_end()
+                    .flex_1()
+                    .text_size(px(tokens.typography.label_size as f32))
+                    .child(self.status.clone()),
+            )
+    }
+}
+
+fn local_clock() -> SharedString {
+    Local::now().format("%H:%M").to_string().into()
 }
 
 struct ViabilityView {
@@ -376,5 +681,12 @@ mod tests {
             window_initialization_error("renderer unavailable"),
             PlatformError::initialization("GPUI layer-shell window: renderer unavailable")
         );
+    }
+
+    #[test]
+    fn local_clock_is_renderable_as_hh_mm() {
+        let clock = super::local_clock();
+        assert_eq!(clock.len(), 5);
+        assert_eq!(clock.as_bytes()[2], b':');
     }
 }

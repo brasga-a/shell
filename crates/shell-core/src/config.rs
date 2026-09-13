@@ -138,6 +138,24 @@ impl Default for MotionConfig {
     }
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(default)]
+pub struct TypographyConfig {
+    pub body_size: u32,
+    pub label_size: u32,
+    pub title_size: u32,
+}
+
+impl Default for TypographyConfig {
+    fn default() -> Self {
+        Self {
+            body_size: 14,
+            label_size: 13,
+            title_size: 16,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(default)]
 pub struct ThemeConfig {
@@ -145,6 +163,7 @@ pub struct ThemeConfig {
     pub radius: ThemeScale,
     pub spacing: ThemeScale,
     pub motion: MotionConfig,
+    pub typography: TypographyConfig,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -340,6 +359,14 @@ impl ShellConfig {
         if self.dock.icon_size == 0 {
             return Err(ConfigError::validation(
                 "dock.icon_size must be greater than zero",
+            ));
+        }
+        if self.theme.typography.body_size == 0
+            || self.theme.typography.label_size == 0
+            || self.theme.typography.title_size == 0
+        {
+            return Err(ConfigError::validation(
+                "theme typography sizes must be greater than zero",
             ));
         }
 

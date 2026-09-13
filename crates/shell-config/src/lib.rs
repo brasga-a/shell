@@ -509,6 +509,8 @@ struct ThemeFile {
     spacing: shell_core::ThemeScale,
     #[serde(default)]
     motion: shell_core::MotionConfig,
+    #[serde(default)]
+    typography: shell_core::TypographyConfig,
 }
 
 impl ThemeFile {
@@ -518,6 +520,7 @@ impl ThemeFile {
             radius: self.radius,
             spacing: self.spacing,
             motion: self.motion,
+            typography: self.typography,
         }
     }
 
@@ -527,6 +530,7 @@ impl ThemeFile {
             radius: config.theme.radius,
             spacing: config.theme.spacing,
             motion: config.theme.motion,
+            typography: config.theme.typography,
         }
     }
 }

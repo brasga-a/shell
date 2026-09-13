@@ -4,16 +4,19 @@
 //! dependencies. Adapters depend on these contracts; the reverse dependency
 //! is not allowed.
 
+mod commands;
 mod config;
 mod domain;
 mod error;
 mod ports;
+mod state;
 
+pub use commands::ShellCommand;
 pub use config::{
     AnimationConfig, BarConfig, BarPosition, CURRENT_CONFIG_VERSION, ColorConfig,
     CompositorBackend, CompositorConfig, DockConfig, GeneralConfig, KeyBinding, KeybindConfig,
     KeyboardModeConfig, LauncherConfig, ModuleRegistry, MotionConfig, NotchConfig,
-    NotificationsConfig, ShellAction, ShellConfig, ThemeConfig, ThemeScale,
+    NotificationsConfig, ShellAction, ShellConfig, ThemeConfig, ThemeScale, TypographyConfig,
 };
 pub use domain::{
     CompositorSnapshot, FocusedWindow, FullscreenState, Monitor, Output, Point, Rect, Size, Window,
@@ -25,3 +28,4 @@ pub use ports::{
     CompositorCapabilities, CompositorEvent, CompositorEventKind, CompositorEventStream,
     CompositorPort, ConfigPort,
 };
+pub use state::CompositorStateStore;
