@@ -16,3 +16,8 @@ lg = 16
 fast_ms = 120
 normal_ms = 220
 slow_ms = 360
+
+[typography]
+body_size = 14
+label_size = 13
+title_size = 16

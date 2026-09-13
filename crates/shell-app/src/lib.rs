@@ -1,10 +1,13 @@
 //! Composition-root support for the shell executable.
 
-use std::sync::OnceLock;
+use std::{
+    sync::{Arc, OnceLock, mpsc},
+    thread,
+};
 
 use shell_core::{
-    CompositorError, CompositorEvent, CompositorPort, CompositorSnapshot, ConfigPort, Output,
-    PlatformError, ShellConfig,
+    CompositorError, CompositorEvent, CompositorEventStream, CompositorPort, CompositorSnapshot,
+    CompositorStateStore, ConfigPort, Output, PlatformError, ShellCommand, ShellConfig,
 };
 use shell_linux::LinuxServices;
 use shell_platform::{
@@ -15,6 +18,57 @@ use shell_ui_gpui::GpuiFrontend;
 use tracing_subscriber::{EnvFilter, fmt, layer::SubscriberExt, util::SubscriberInitExt};
 
 static LOGGING_INITIALIZED: OnceLock<()> = OnceLock::new();
+
+/// Application-owned asynchronous command path used by feature surfaces.
+///
+/// The UI only enqueues a domain command. The worker invokes the
+/// `CompositorPort`, keeping IPC latency and compositor failures off the GPUI
+/// event/render path.
+#[derive(Clone)]
+pub struct ShellCommandBus {
+    sender: mpsc::Sender<ShellCommand>,
+}
+
+impl ShellCommandBus {
+    fn new(compositor: Arc<dyn CompositorPort>) -> Self {
+        let (sender, receiver) = mpsc::channel();
+        let _ = thread::Builder::new()
+            .name("shell-command-worker".to_owned())
+            .spawn(move || {
+                while let Ok(command) = receiver.recv() {
+                    if let Err(error) = execute_command(compositor.as_ref(), command) {
+                        tracing::warn!(%error, ?command, "shell command failed");
+                    }
+                }
+            });
+        Self { sender }
+    }
+
+    pub fn dispatch(&self, command: ShellCommand) -> Result<(), PlatformError> {
+        self.sender
+            .send(command)
+            .map_err(|error| PlatformError::Runtime {
+                message: format!("shell command queue is unavailable: {error}"),
+            })
+    }
+
+    pub fn sender(&self) -> mpsc::Sender<ShellCommand> {
+        self.sender.clone()
+    }
+}
+
+fn execute_command(
+    compositor: &dyn CompositorPort,
+    command: ShellCommand,
+) -> Result<(), PlatformError> {
+    match command {
+        ShellCommand::FocusWorkspace(workspace_id) => compositor
+            .focus_workspace(workspace_id)
+            .map_err(|error| PlatformError::Runtime {
+                message: error.to_string(),
+            }),
+    }
+}
 
 /// Initialize structured logging once for the process.
 pub fn initialize_logging() -> Result<(), PlatformError> {
@@ -34,13 +88,14 @@ pub fn initialize_logging() -> Result<(), PlatformError> {
 }
 
 pub struct ShellApplication {
-    compositor: Box<dyn CompositorPort>,
+    compositor: Arc<dyn CompositorPort>,
     config: Box<dyn ConfigPort>,
     linux_services: LinuxServices,
     frontend: GpuiFrontend,
     design_tokens: DesignTokens,
     output_registry: OutputRegistry,
-    compositor_state: Option<CompositorSnapshot>,
+    compositor_state: CompositorStateStore,
+    command_bus: ShellCommandBus,
 }
 
 impl ShellApplication {
@@ -51,6 +106,8 @@ impl ShellApplication {
         frontend: GpuiFrontend,
         design_tokens: DesignTokens,
     ) -> Self {
+        let compositor: Arc<dyn CompositorPort> = Arc::from(compositor);
+        let command_bus = ShellCommandBus::new(compositor.clone());
         Self {
             compositor,
             config,
@@ -58,7 +115,8 @@ impl ShellApplication {
             frontend,
             design_tokens,
             output_registry: OutputRegistry::new(SurfaceTopology::Independent),
-            compositor_state: None,
+            compositor_state: CompositorStateStore::default(),
+            command_bus,
         }
     }
 
@@ -139,8 +197,26 @@ impl ShellApplication {
         self.apply_compositor_snapshot(event.snapshot)
     }
 
-    pub fn compositor_state(&self) -> Option<&CompositorSnapshot> {
-        self.compositor_state.as_ref()
+    pub fn compositor_state(&self) -> Option<CompositorSnapshot> {
+        self.compositor_state.snapshot()
+    }
+
+    pub fn state_store(&self) -> CompositorStateStore {
+        self.compositor_state.clone()
+    }
+
+    pub fn command_bus(&self) -> ShellCommandBus {
+        self.command_bus.clone()
+    }
+
+    pub fn dispatch_command(&self, command: ShellCommand) -> Result<(), PlatformError> {
+        execute_command(self.compositor.as_ref(), command)
+    }
+
+    pub fn subscribe_compositor_events(
+        &self,
+    ) -> Result<Box<dyn CompositorEventStream>, CompositorError> {
+        self.compositor.subscribe_events()
     }
 
     pub fn output_registry(&self) -> &OutputRegistry {
@@ -166,7 +242,7 @@ impl ShellApplication {
             .output_registry
             .reconcile_with_focus(snapshot.monitors.clone(), snapshot.focused_output)
             .map_err(output_state_error)?;
-        self.compositor_state = Some(snapshot);
+        self.compositor_state.replace(snapshot);
         Ok(transitions)
     }
 }
@@ -179,8 +255,8 @@ fn output_state_error(error: OutputStateError) -> PlatformError {
 mod tests {
     use shell_config::InMemoryConfig;
     use shell_core::{
-        CompositorError, CompositorPort, CompositorSnapshot, Output, OutputId, Rect, Window,
-        Workspace, WorkspaceId,
+        CompositorError, CompositorPort, CompositorSnapshot, Output, OutputId, Rect, ShellCommand,
+        Window, Workspace, WorkspaceId,
     };
     use shell_linux::LinuxServices;
     use shell_platform::{Anchors, ShellLayer, SurfaceSpec};
@@ -288,5 +364,15 @@ mod tests {
             } if *previous == OutputId::new(1)
         )));
         assert_eq!(application.output_registry().focused_output(), None);
+    }
+
+    #[test]
+    fn workspace_intent_reaches_the_application_command_boundary() {
+        let snapshot = CompositorSnapshot::default();
+        let application = application(snapshot);
+
+        application
+            .dispatch_command(ShellCommand::FocusWorkspace(WorkspaceId::new(2)))
+            .expect("the compositor port accepts the command");
     }
 }

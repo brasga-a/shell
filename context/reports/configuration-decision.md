@@ -236,9 +236,14 @@ modules_right = [
 ```toml
 enabled = true
 
-width = 420
+modules = ["clock", "network"]
+collapsed_width = 144
+width = 520
 collapsed_height = 32
-expanded_height = 420
+expanded_height = 360
+corner_radius = 24
+corner_size = 24
+edge = "top"
 
 [animation]
 enabled = true

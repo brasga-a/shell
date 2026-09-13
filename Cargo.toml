@@ -28,6 +28,7 @@ shell-ui-gpui = { path = "crates/shell-ui-gpui" }
 
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+chrono = "0.4.45"
 serde = { version = "1.0.229", features = ["derive"] }
 toml = "0.8.23"
 arc-swap = "1.7.1"

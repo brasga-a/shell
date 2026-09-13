@@ -138,6 +138,24 @@ impl Default for MotionConfig {
     }
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(default)]
+pub struct TypographyConfig {
+    pub body_size: u32,
+    pub label_size: u32,
+    pub title_size: u32,
+}
+
+impl Default for TypographyConfig {
+    fn default() -> Self {
+        Self {
+            body_size: 14,
+            label_size: 13,
+            title_size: 16,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(default)]
 pub struct ThemeConfig {
@@ -145,6 +163,7 @@ pub struct ThemeConfig {
     pub radius: ThemeScale,
     pub spacing: ThemeScale,
     pub motion: MotionConfig,
+    pub typography: TypographyConfig,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -210,9 +229,14 @@ impl Default for BarConfig {
 #[serde(default)]
 pub struct NotchConfig {
     pub enabled: bool,
+    pub modules: Vec<String>,
+    pub collapsed_width: u32,
     pub width: u32,
     pub collapsed_height: u32,
     pub expanded_height: u32,
+    pub corner_radius: u32,
+    pub corner_size: u32,
+    pub edge: BarPosition,
     pub animation: AnimationConfig,
 }
 
@@ -220,9 +244,14 @@ impl Default for NotchConfig {
     fn default() -> Self {
         Self {
             enabled: true,
-            width: 420,
+            modules: vec!["clock".to_string(), "network".to_string()],
+            collapsed_width: 144,
+            width: 520,
             collapsed_height: 32,
-            expanded_height: 420,
+            expanded_height: 360,
+            corner_radius: 24,
+            corner_size: 24,
+            edge: BarPosition::Top,
             animation: AnimationConfig::default(),
         }
     }
@@ -332,14 +361,36 @@ impl ShellConfig {
                 "bar.height must be greater than zero",
             ));
         }
-        if self.notch.width == 0 || self.notch.expanded_height == 0 {
+        if self.notch.collapsed_width == 0
+            || self.notch.width == 0
+            || self.notch.collapsed_height == 0
+            || self.notch.expanded_height == 0
+        {
             return Err(ConfigError::validation(
-                "notch.width and notch.expanded_height must be greater than zero",
+                "notch widths and heights must be greater than zero",
+            ));
+        }
+        if self.notch.expanded_height < self.notch.collapsed_height {
+            return Err(ConfigError::validation(
+                "notch.expanded_height must be at least collapsed_height",
+            ));
+        }
+        if self.notch.corner_size == 0 || self.notch.corner_radius == 0 {
+            return Err(ConfigError::validation(
+                "notch.corner_size and notch.corner_radius must be greater than zero",
             ));
         }
         if self.dock.icon_size == 0 {
             return Err(ConfigError::validation(
                 "dock.icon_size must be greater than zero",
+            ));
+        }
+        if self.theme.typography.body_size == 0
+            || self.theme.typography.label_size == 0
+            || self.theme.typography.title_size == 0
+        {
+            return Err(ConfigError::validation(
+                "theme typography sizes must be greater than zero",
             ));
         }
 
